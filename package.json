@@ -1,0 +1,66 @@
+{
+  "name": "minionjs-backend-mongoose",
+  "description": "A node.js backend for minion.js",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx tsc --build ./",
+    "build:clean": "npm run clean && npm run build",
+    "build:coverage": "npm run build && npm run coverage",
+    "build:lint": "npm run build && npm run lint",
+    "build:node": "npm run build && node",
+    "build:test": "npm run build && npm test",
+    "build:watch": "npm run build -- --watch",
+    "clean": "rm -rf tsconfig.tsbuildinfo lib",
+    "coverage": "c8 tap --no-coverage test/*.js",
+    "coverage:ci": "c8 --reporter lcovonly tap --no-coverage test/*.js",
+    "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\"",
+    "lint:fix": "npm run lint -- --fix",
+    "prepublishOnly": "npm run build",
+    "publish:minor": "npm version minor && npm publish",
+    "publish:patch": "npm version patch && npm publish",
+    "test": "tap --no-coverage test/*.js"
+  },
+  "keywords": [
+    "mongoose",
+    "backend",
+    "job-queue"
+  ],
+  "author": "Emiliano Bruni",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EmilianoBruni/minionjs-backend-mongoose.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EmilianoBruni/minionjs-backend-mongoose/issues"
+  },
+  "type": "module",
+  "files": [
+    "lib/"
+  ],
+  "homepage": "https://github.com/EmilianoBruni/minionjs-backend-mongoose#readme",
+  "devDependencies": {
+    "@types/busboy": "^1.5.0",
+    "@types/stack-utils": "^2.0.1",
+    "@types/tap": "^15.0.8",
+    "@types/tough-cookie": "^4.0.2",
+    "@types/ws": "^8.5.4",
+    "@typescript-eslint/eslint-plugin": "^5.58.0",
+    "@typescript-eslint/parser": "^5.58.0",
+    "eslint": "^8.38.0",
+    "eslint-config-prettier": "^8.8.0",
+    "eslint-plugin-import": "^2.27.5",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "prettier": "^2.8.7",
+    "tap": "^16.3.4",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+    "@minionjs/core": "^0.3.7",
+    "c8": "^7.13.0",
+    "moment": "^2.29.4",
+    "mongoose": "^7.0.3"
+  }
+}
