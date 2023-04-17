@@ -1,19 +1,15 @@
+import type { IMinionJobs, IMinionWorkers } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 import type {
     DailyHistory,
-    DequeueOptions,
-    DequeuedJob,
-    EnqueueOptions,
     JobInfo,
     JobList,
-    ListJobsOptions,
     ListLocksOptions,
     LockInfo,
     LockOptions,
     LockList,
     MinionArgs,
     MinionHistory,
-    MinionJobId,
     MinionStats,
     RegisterWorkerOptions,
     ResetOptions,
@@ -22,24 +18,59 @@ import type {
     WorkerList
 } from '@minionjs/core/lib/types';
 import type mongodb from 'mongodb';
-import { Types } from 'mongoose';
 import os from 'node:os';
 import {
     minionJobsSchema,
     minionWorkersSchema,
     minionLocksSchema,
-    IMinionJobs,
-    IMinionLocks,
-    IMinionWorkers
+    IMinionLocks
 } from './schemas/minion.js';
 import Path from '@mojojs/path';
 import moment from 'moment';
+import { ObjectId, Types } from 'mongoose';
 import { Mongoose } from 'mongoose';
 
+export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 export type MinionWorkerId = string;
+export type MinionJobId = string | undefined;
+export type MinionJobOid = Types.ObjectId;
+
 export interface ListWorkersOptions {
     before?: string;
     ids?: MinionWorkerId[];
+}
+
+export interface ListJobsOptions {
+    before?: string;
+    ids?: MinionJobId[];
+    notes?: string[];
+    queues?: string[];
+    states?: MinionStates[];
+    tasks?: string[];
+}
+
+export interface EnqueueOptions {
+    attempts?: number;
+    delay?: number;
+    expire?: number;
+    lax?: boolean;
+    notes?: Record<string, any>;
+    parents?: MinionJobOid[];
+    priority?: number;
+    queue?: string;
+}
+
+export interface DequeuedJob {
+    id: MinionJobId;
+    args: MinionArgs;
+    retries: number;
+    task: string;
+}
+
+export interface DequeueOptions {
+    id?: MinionJobId;
+    minPriority?: number;
+    queues?: string[];
 }
 
 //? If pg-backends should export these interface we could import
@@ -60,14 +91,11 @@ interface JobWithMissingWorkerResult {
     retries: number;
 }
 
-interface ListJobsResult extends JobInfo {
-}
+type ListJobsResult = JobInfo;
 
-interface ListLockResult extends LockInfo {
-}
+type ListLockResult = LockInfo;
 
-interface ListWorkersResult extends WorkerInfo {
-}
+type ListWorkersResult = WorkerInfo;
 
 interface LockResult {
     minion_lock: boolean;
@@ -125,6 +153,26 @@ export class MongooseBackend {
     mongoose: Mongoose;
 
     _hostname = os.hostname();
+    _isReplicaSet: boolean | undefined;
+
+    /**
+     * Return if MongoDB is a replicaset or stand-alone.
+     */
+
+    isReplicaSet(): boolean | undefined {
+        if (this.mongoose === undefined) return undefined;
+        if (this.mongoose.connection.readyState !== 1) return undefined;
+        if (this._isReplicaSet !== undefined) return this._isReplicaSet;
+        try {
+            this.mongoose.connection.db
+                .admin()
+                .command({ replSetGetStatus: 1 });
+            this._isReplicaSet = true;
+        } catch (error) {
+            this._isReplicaSet = false;
+        }
+        return this._isReplicaSet;
+    }
 
     constructor(minion: Minion, config: ConnectOptions | Mongoose) {
         this.minion = minion;
@@ -142,10 +190,71 @@ export class MongooseBackend {
     }
 
     /**
+     * Wait a given amount of time in milliseconds for a job, dequeue it and transition from `inactive` to `active`
+     * state, or return `null` if queues were empty.
+     */
+    async dequeue(
+        id: MinionWorkerId,
+        wait: number,
+        options: DequeueOptions
+    ): Promise<DequeuedJob | null> {
+        const job = await this._try(id, options);
+        if (job !== null) return job;
+
+        // TODO:
+        // const db = await this.pg.db();
+        // try {
+        //     await db.listen('minion.job');
+        //     let timer;
+        //     await Promise.race([
+        //         new Promise(resolve => db.on('notification', resolve)),
+        //         new Promise(resolve => (timer = setTimeout(resolve, wait)))
+        //     ]);
+        //     clearTimeout(timer);
+        // } finally {
+        //     await db.release();
+        // }
+
+        // return await this._try(id, options);
+        return null;
+    }
+
+    /**
      * Stop using the queue.
      */
     async end(): Promise<void> {
         await this.mongoose.disconnect();
+    }
+
+    /**
+     * Enqueue a new job with `inactive` state.
+     */
+    async enqueue(
+        task: string,
+        args: MinionArgs = [],
+        options: EnqueueOptions = {}
+    ): Promise<MinionJobId> {
+        const mJobs = this.mongoose.models.minionJobs;
+
+        const job = new mJobs<IMinionJobs>({
+            args: args,
+            attempts: options.attempts ?? 1,
+            delayed: moment()
+                .add(options.delay ?? 0, 'milliseconds')
+                .toDate(),
+            lax: options.lax ?? false,
+            notes: options.notes ?? {},
+            parents: options.parents ?? [],
+            priority: options.priority ?? 0,
+            queue: options.queue ?? 'default',
+            task: task
+        });
+        if (options.expire !== undefined)
+            job.expires = moment().add(options.expire, 'milliseconds').toDate();
+
+        await job.save();
+
+        return job._id?.toString();
     }
 
     /**
@@ -162,52 +271,107 @@ export class MongooseBackend {
     }
 
     /**
-   * Returns information about workers in batches.
-   */
-    async listWorkers(offset: number, limit: number, options: ListWorkersOptions = {}): Promise<WorkerList> {
+     * Returns the information about jobs in batches.
+     */
+    async listJobs(
+        offset: number,
+        limit: number,
+        options: ListJobsOptions = {}
+    ): Promise<JobList> {
+        const results = this.mongoose.models.minionJobs.aggregate();
+        if (options.ids !== undefined)
+            results.match({
+                _id: {
+                    $in: options.ids.map(this._oid.bind(this))
+                }
+            });
 
-        const results = this.mongoose.models.minionWorkers.aggregate();
-        if (options.ids !== undefined) results.match({
-            _id: {
-                '$in':
-                    options.ids.map(this._oid.bind(this))
-            }
+        if (options.before !== undefined)
+            results.match({
+                $lt: this._oid(options.before)
+            });
+        if (options.notes !== undefined)
+            options.notes.forEach(note => {
+                results.match({
+                    'notes.$`note`': { $exists: true }
+                });
+            });
+        results.match({
+            $or: [
+                { state: { $ne: 'inactive' } },
+                { expires: { $gt: moment() } },
+                { expires: { $exists: false } }
+            ]
         });
 
-        if (options.before !== undefined) results.match({
-            '$lt': this._oid(options.before)
-        })
-
-        results.sort({ _id: -1 }).skip(offset).limit(limit)
+        results.sort({ _id: -1 }).skip(offset).limit(limit);
 
         results.lookup({
             from: 'minion_jobs',
-            let: { worker_id: "$_id" },
+            localField: 'parents',
+            foreignField: 'children',
+            as: 'children'
+        });
+
+        const jobs = await results.exec();
+
+        return { total: jobs.length, jobs: jobs };
+    }
+
+    /**
+     * Returns information about workers in batches.
+     */
+    async listWorkers(
+        offset: number,
+        limit: number,
+        options: ListWorkersOptions = {}
+    ): Promise<WorkerList> {
+        const results = this.mongoose.models.minionWorkers.aggregate();
+        if (options.ids !== undefined)
+            results.match({
+                _id: {
+                    $in: options.ids.map(this._oid.bind(this))
+                }
+            });
+
+        if (options.before !== undefined)
+            results.match({
+                $lt: this._oid(options.before)
+            });
+
+        results.sort({ _id: -1 }).skip(offset).limit(limit);
+
+        results.lookup({
+            from: 'minion_jobs',
+            let: { worker_id: '$_id' },
             pipeline: [
                 {
-                    '$match': {
-                        '$expr': {
-                            '$and': [
+                    $match: {
+                        $expr: {
+                            $and: [
                                 { state: 'active' },
-                                { '$eq': ["$_id", "$$worker_id"] }
+                                { $eq: ['$_id', '$$worker_id'] }
                             ]
                         }
                     }
                 },
-                { '$project': { _id: 1 } }
+                { $project: { _id: 1 } }
             ],
-            as: 'jobs',
+            as: 'jobs'
         });
 
         const workers = await results.exec();
 
-        return { total: (workers.length), workers: workers };
+        return { total: workers.length, workers: workers };
     }
 
     /**
-   * Register worker or send heartbeat to show that this worker is still alive.
-   */
-    async registerWorker(id?: MinionWorkerId, options: RegisterWorkerOptions = {}): Promise<MinionWorkerId> {
+     * Register worker or send heartbeat to show that this worker is still alive.
+     */
+    async registerWorker(
+        id?: MinionWorkerId,
+        options: RegisterWorkerOptions = {}
+    ): Promise<MinionWorkerId> {
         const status = options.status ?? {};
         const mWorkers = this.mongoose.models.minionWorkers;
 
@@ -220,11 +384,12 @@ export class MongooseBackend {
                 pid: process.pid,
                 notified: moment(),
                 status: status
-            }, {
-            upsert: true,
-            lean: true,
-            returnDocument: 'after'
-        }
+            },
+            {
+                upsert: true,
+                lean: true,
+                returnDocument: 'after'
+            }
         );
         return worker._id.toString();
     }
@@ -335,10 +500,12 @@ export class MongooseBackend {
     }
 
     /**
-   * Unregister worker.
-   */
+     * Unregister worker.
+     */
     async unregisterWorker(id: MinionWorkerId): Promise<void> {
-        await this.mongoose.models.minionWorkers.deleteOne({ _id: this._oid(id) })
+        await this.mongoose.models.minionWorkers.deleteOne({
+            _id: this._oid(id)
+        });
     }
 
     /**
@@ -355,7 +522,6 @@ export class MongooseBackend {
         // await job.save();
         await this._initDB();
     }
-
 
     _loadModels() {
         [minionJobsSchema, minionLocksSchema, minionWorkersSchema].forEach(
@@ -411,5 +577,95 @@ export class MongooseBackend {
     _oid(oidString: string | undefined): Types.ObjectId | undefined {
         if (oidString == undefined) return undefined;
         return new this.mongoose.Types.ObjectId(oidString);
+    }
+
+    async _try(
+        id: MinionWorkerId,
+        options: DequeueOptions
+    ): Promise<DequeuedJob | null> {
+        const jobId = options.id;
+        const minPriority = options.minPriority;
+        const queues = options.queues ?? ['default'];
+        const tasks = Object.keys(this.minion.tasks);
+
+        const now = moment().toDate();
+
+        //     SELECT id FROM minion_jobs AS j
+        //     WHERE delayed <= NOW() AND id = COALESCE(${jobId}, id)
+        // AND priority >= COALESCE(${minPriority}, priority) AND queue = ANY (${queues}) AND state = 'inactive'
+        //       AND task = ANY (${tasks}) AND (EXPIRES IS NULL OR expires > NOW())
+        const results = this.mongoose.models.minionJobs
+            .aggregate<DequeueResult>()
+            .match({
+                delayed: { $lte: now },
+                state: 'inactive',
+                task: { $in: tasks },
+                queue: { $in: queues },
+                $or: [
+                    { expires: { $gt: now } },
+                    { expires: { $exists: false } }
+                ]
+            });
+
+        if (jobId !== undefined) results.match({ _id: this._oid(jobId) });
+        if (minPriority !== undefined)
+            results.match({ priority: { $gte: minPriority } });
+
+        // AND (parents = '{}' OR
+        // NOT EXISTS (
+        //       SELECT 1 FROM minion_jobs WHERE id = ANY (j.parents) AND (
+        //         state = 'active' OR (state = 'failed' AND NOT j.lax)
+        //         OR (state = 'inactive' AND (expires IS NULL OR expires > NOW())))
+        //     ))
+
+        results.lookup({
+            from: 'minion_jobs',
+            let: { p: '$parents', l: '$lax' },
+            pipeline: [
+                {
+                    $match: {
+                        $expr: { $in: ['$_id', '$$p'] },
+                        $or: [
+                            { state: 'active' },
+                            { state: 'failed', $expr: { $eq: ['$$l', false] } },
+                            {
+                                state: 'inactive',
+                                $or: [
+                                    { $expr: { $gt: ['$expires', now] } },
+                                    { expires: { $exists: false } }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            ],
+            as: 'parents_docs'
+        });
+        results.match({ $or: [{ parents_docs: [] }, { parents: [] }] });
+
+        //     ORDER BY priority DESC, id
+        //     LIMIT 1
+        //     FOR UPDATE SKIP LOCKED
+        //   )
+        results.sort({ priority: -1, _id: 1 }).limit(1);
+        //   RETURNING id, args, retries, task
+        results.project({ id: '$_id', args: 1, retries: 1, task: 1 });
+
+        const job = await results.exec();
+
+        if (job.length > 0) {
+            await this.mongoose.models.minionJobs.updateOne(
+                { _id: job[0].id },
+                {
+                    started: now,
+                    state: 'active',
+                    worker: id
+                }
+            );
+            job[0].id = job[0].id?.toString();
+        }
+
+        //   UPDATE minion_jobs SET started = NOW(), state = 'active', worker = ${id}
+        return job[0];
     }
 }

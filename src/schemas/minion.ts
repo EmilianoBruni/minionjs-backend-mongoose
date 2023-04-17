@@ -10,25 +10,25 @@ export interface MongooseSchema {
 }
 
 export interface IMinionJobs {
-    _id: Types.ObjectId;
-    args: [];
+    _id?: Types.ObjectId;
+    args: any[];
     attempts?: number;
-    created: Date;
+    created?: Date;
     delayed: Date;
-    expires: Date;
-    finished: Date;
-    notes: any;
-    parents: [Types.ObjectId];
+    expires?: Date;
+    finished?: Date;
+    notes?: any;
+    parents?: Types.ObjectId[];
     priority: number;
-    queue: string;
-    result: any;
-    retried: Date;
-    retries: number;
-    started: Date;
-    state: MinionStates;
+    queue?: string;
+    result?: any;
+    retried?: Date;
+    retries?: number;
+    started?: Date;
+    state?: MinionStates;
     task: string;
-    worker: [Schema.Types.ObjectId];
-    lax: boolean;
+    worker?: [Schema.Types.ObjectId];
+    lax?: boolean;
 }
 
 export const minionJobsSchema: MongooseSchema = {
@@ -38,7 +38,7 @@ export const minionJobsSchema: MongooseSchema = {
         timestamps: false
     },
     schema: {
-        _id: Schema.Types.ObjectId,
+        _id: { type: Schema.Types.ObjectId, auto: true },
         args: { type: [], required: true },
         attempts: { type: Number, default: 1 },
         created: { type: Date, default: Date.now },
