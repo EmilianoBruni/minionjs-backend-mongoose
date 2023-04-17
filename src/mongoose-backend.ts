@@ -142,25 +142,23 @@ export class MongooseBackend {
     }
 
     /**
-     * Update database schema to latest version.
-     */
-    async update(): Promise<void> {
-        /** Current do nothing. We don't support (and maybe Moongoose doesnt' need
-         *  migration code
-         */
-        // const job = new this.mongoose.models.minionLocks({
-        //     expires: Date.now(),
-        //     name: 'Pippo'
-        // });
-        // await job.save();
-        await this._initDB();
-    }
-
-    /**
      * Stop using the queue.
      */
     async end(): Promise<void> {
         await this.mongoose.disconnect();
+    }
+
+    /**
+     * Transition from `active` to `failed` state with or without a result, and if there are attempts remaining,
+     * transition back to `inactive` with a delay.
+     */
+    async failJob(
+        id: MinionJobId,
+        retries: number,
+        result?: any
+    ): Promise<boolean> {
+        //return await this._update('failed', id, retries, result); // TODO:
+        return false;
     }
 
     /**
@@ -343,19 +341,21 @@ export class MongooseBackend {
         await this.mongoose.models.minionWorkers.deleteOne({ _id: this._oid(id) })
     }
 
-
     /**
-     * Transition from `active` to `failed` state with or without a result, and if there are attempts remaining,
-     * transition back to `inactive` with a delay.
+     * Update database schema to latest version.
      */
-    async failJob(
-        id: MinionJobId,
-        retries: number,
-        result?: any
-    ): Promise<boolean> {
-        //return await this._update('failed', id, retries, result); // TODO:
-        return false;
+    async update(): Promise<void> {
+        /** Current do nothing. We don't support (and maybe Moongoose doesnt' need
+         *  migration code
+         */
+        // const job = new this.mongoose.models.minionLocks({
+        //     expires: Date.now(),
+        //     name: 'Pippo'
+        // });
+        // await job.save();
+        await this._initDB();
     }
+
 
     _loadModels() {
         [minionJobsSchema, minionLocksSchema, minionWorkersSchema].forEach(
