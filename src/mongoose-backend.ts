@@ -201,22 +201,19 @@ export class MongooseBackend {
         const job = await this._try(id, options);
         if (job !== null) return job;
 
-        // TODO:
-        // const db = await this.pg.db();
-        // try {
-        //     await db.listen('minion.job');
-        //     let timer;
-        //     await Promise.race([
-        //         new Promise(resolve => db.on('notification', resolve)),
-        //         new Promise(resolve => (timer = setTimeout(resolve, wait)))
-        //     ]);
-        //     clearTimeout(timer);
-        // } finally {
-        //     await db.release();
-        // }
+        if (this.isReplicaSet()) {
+            // TODO: reduce filter to match only new Job for this queue
+            const newJob = this.mongoose.models.minionJobs.watch([]);
+            const timeoutPromise = new Promise(resolve =>
+                setTimeout(() => resolve(false), wait)
+            );
+            const doc = await Promise.race([newJob.next(), timeoutPromise]);
+            console.log('PromiceRace: ' + JSON.stringify(doc));
+        } else {
+            // TODO: standalone
+        }
 
-        // return await this._try(id, options);
-        return null;
+        return await this._try(id, options);
     }
 
     /**
@@ -266,8 +263,18 @@ export class MongooseBackend {
         retries: number,
         result?: any
     ): Promise<boolean> {
-        //return await this._update('failed', id, retries, result); // TODO:
-        return false;
+        return await this._update('failed', id, retries, result);
+    }
+
+    /**
+     * Transition from C<active> to `finished` state with or without a result.
+     */
+    async finishJob(
+        id: MinionJobId,
+        retries: number,
+        result?: any
+    ): Promise<boolean> {
+        return await this._update('finished', id, retries, result);
     }
 
     /**
@@ -363,6 +370,32 @@ export class MongooseBackend {
         const workers = await results.exec();
 
         return { total: workers.length, workers: workers };
+    }
+
+    /**
+     * Change one or more metadata fields for a job. Setting a value to `null` will remove the field.
+     */
+    async note(id: MinionJobId, merge: Record<string, any>): Promise<boolean> {
+        console.log(merge);
+        if (Object.keys(merge).length === 0) return false;
+        type keyable = { [key: string]: any };
+        type setOrNotSet = { toSet: keyable; toUnset: keyable };
+        const key: setOrNotSet = { toSet: {}, toUnset: {} };
+        Object.keys(merge).forEach(
+            (k: string) =>
+            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                merge[k])
+        );
+
+        console.log(key);
+        const result = await this.mongoose.models.minionJobs.updateOne(
+            {
+                _id: this._oid(id)
+            },
+            { $set: key.toSet, $unset: key.toUnset }
+        );
+
+        return result.modifiedCount > 0;
     }
 
     /**
@@ -500,6 +533,58 @@ export class MongooseBackend {
     }
 
     /**
+     * Reset job queue.
+     */
+    async reset(options: ResetOptions): Promise<void> {
+        if (options.all === true)
+            for await (const coll of [
+                this.mongoose.models.minionJobs,
+                this.mongoose.models.minionLocks,
+                this.mongoose.models.minionWorkers
+            ]) {
+                await coll.deleteMany({});
+            }
+        if (options.locks === true)
+            await this.mongoose.models.minionLocks.deleteMany({});
+    }
+
+    /**
+     * Transition job back to `inactive` state, already `inactive` jobs may also be retried to change options.
+     */
+    async retryJob(
+        id: MinionJobId,
+        retries: number,
+        options: RetryOptions = {}
+    ): Promise<boolean> {
+        type keyable = { [key: string]: any };
+        const filter = { _id: this._oid(id), retries: retries };
+        const update: keyable = {
+            delayed: moment()
+                .add(options.delay ?? 0, 'milliseconds')
+                .toDate(),
+            retried: Date.now(),
+            $inc: { retries: 1 }
+        };
+
+        if ('expire' in options)
+            update.expires = moment()
+                .add(options.expire, 'milliseconds')
+                .toDate();
+        /* @ts-ignore:enable */
+        ['lax', 'parents', 'priority', 'queue'].forEach(k => {
+            /* @ts-ignore:enable */
+            if (k in options) update[k] = options[k];
+        }
+        );
+
+        const res = await this.mongoose.models.minionJobs.updateOne(
+            filter,
+            update
+        );
+        return res.modifiedCount > 0;
+    }
+
+    /**
      * Unregister worker.
      */
     async unregisterWorker(id: MinionWorkerId): Promise<void> {
@@ -521,6 +606,19 @@ export class MongooseBackend {
         // });
         // await job.save();
         await this._initDB();
+    }
+
+    async _autoRetryJob(
+        id: MinionJobId,
+        retries: number,
+        attempts: number
+    ): Promise<boolean> {
+        if (attempts <= 1) return true;
+        const delay = this.minion.backoff(retries);
+        return this.retryJob(id, retries, {
+            attempts: attempts > 1 ? attempts - 1 : 1,
+            delay
+        });
     }
 
     _loadModels() {
@@ -667,5 +765,28 @@ export class MongooseBackend {
 
         //   UPDATE minion_jobs SET started = NOW(), state = 'active', worker = ${id}
         return job[0];
+    }
+
+    async _update(
+        state: 'finished' | 'failed',
+        id: MinionJobId,
+        retries: number,
+        result?: any
+    ): Promise<boolean> {
+        const job: IMinionJobs | null =
+            await this.mongoose.models.minionJobs.findOneAndUpdate(
+                {
+                    _id: this._oid(id),
+                    retries: retries,
+                    state: 'active'
+                },
+                { finished: Date.now(), result: result, state: state }
+            );
+
+        if (job === undefined) return false;
+        const attempts = job?.attempts ?? 0;
+        return state === 'failed'
+            ? this._autoRetryJob(id, retries, attempts)
+            : true;
     }
 }
