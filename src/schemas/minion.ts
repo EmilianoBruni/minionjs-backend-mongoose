@@ -11,6 +11,7 @@ export interface MongooseSchema {
 
 export interface IMinionJobs {
     _id?: Types.ObjectId;
+    id?: Types.ObjectId;
     args: any[];
     attempts?: number;
     created?: Date;

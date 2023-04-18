@@ -320,7 +320,11 @@ export class MongooseBackend {
             as: 'children'
         });
 
+        // minion expect an id field
+        results.addFields({id: {'$toString': "$_id"}});
+
         const jobs = await results.exec();
+        console.log(jobs);
 
         return { total: jobs.length, jobs: jobs };
     }
@@ -376,7 +380,6 @@ export class MongooseBackend {
      * Change one or more metadata fields for a job. Setting a value to `null` will remove the field.
      */
     async note(id: MinionJobId, merge: Record<string, any>): Promise<boolean> {
-        console.log(merge);
         if (Object.keys(merge).length === 0) return false;
         type keyable = { [key: string]: any };
         type setOrNotSet = { toSet: keyable; toUnset: keyable };
@@ -387,7 +390,6 @@ export class MongooseBackend {
                 merge[k])
         );
 
-        console.log(key);
         const result = await this.mongoose.models.minionJobs.updateOne(
             {
                 _id: this._oid(id)
@@ -563,7 +565,8 @@ export class MongooseBackend {
                 .add(options.delay ?? 0, 'milliseconds')
                 .toDate(),
             retried: Date.now(),
-            $inc: { retries: 1 }
+            $inc: { retries: 1 },
+            state: 'inactive'
         };
 
         if ('expire' in options)
@@ -628,6 +631,16 @@ export class MongooseBackend {
                     collection: model.name,
                     ...model.options
                 });
+                // add virtual id to match id request of minion module
+                // as number
+                schema.virtual('id')
+                .get(function () {
+                    /* @ts-ignore:enable */
+                    return this._id.toString();
+                })
+                .set(function(v) {
+                    this._id = new Types.ObjectId(v)
+                })
                 this.mongoose.model(model.alias, schema);
             }
         );
