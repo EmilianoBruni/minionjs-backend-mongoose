@@ -324,7 +324,6 @@ export class MongooseBackend {
         results.addFields({id: {'$toString': "$_id"}});
 
         const jobs = await results.exec();
-        console.log(jobs);
 
         return { total: jobs.length, jobs: jobs };
     }
@@ -427,6 +426,19 @@ export class MongooseBackend {
             }
         );
         return worker._id.toString();
+    }
+
+    /**
+     * Remove `failed`, `finished` or `inactive` job from queue.
+     */
+    async removeJob(id:MinionJobId):Promise<boolean> {
+
+        const res = await this.mongoose.models.minionJobs.deleteOne({
+            _id: this._oid(id), 
+            state: {'$in': ['inactive', 'failed', 'finished']}
+        });
+
+        return (res.deletedCount === 1);
     }
 
     /**
