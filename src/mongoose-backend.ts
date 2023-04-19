@@ -476,8 +476,6 @@ export class MongooseBackend {
         //     WHERE j.state = 'finished' AND j.finished <= NOW() - INTERVAL '1 millisecond' * ${minion.removeAfter}
         //       AND children.id IS NULL
 
-        console.log(JSON.stringify(pipeline));
-
         const jobs = mJobs
             .aggregate()
             .match({
@@ -526,7 +524,7 @@ export class MongooseBackend {
 
         const jobsActive = mJobs.find({
             state: 'active',
-            queue: { $ne: 'minion_foregroud' }
+            queue: { $ne: 'minion_foreground' }
         });
 
         for await (const job of jobsActive) {
