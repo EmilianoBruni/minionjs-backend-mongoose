@@ -161,5 +161,25 @@ t.test('Mongoose backend', skip, async t => {
         t.equal(info.result, 'Worker went away');
     });
 
+    await t.test(
+        'Repair abandoned job in minion_foreground queue (have to be handled manually)',
+        async t => {
+            const worker = await minion.worker().register();
+            const id = await minion.enqueue('test', [], {
+                queue: 'minion_foreground'
+            });
+            const job = await worker.dequeue(0, {
+                queues: ['minion_foreground']
+            });
+            t.equal(job.id, id);
+            await worker.unregister();
+            await minion.repair();
+            const info = await job.info();
+            t.equal(info.state, 'active');
+            t.equal(info.queue, 'minion_foreground');
+            t.same(info.result, null);
+        }
+    );
+
     await minion.end();
 });
