@@ -3,6 +3,7 @@ import { MongooseBackend } from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mojo, { util } from '@mojojs/core';
 import mongoose from 'mongoose';
+import moment from 'moment';
 import t from 'tap';
 
 const skip =
@@ -123,17 +124,31 @@ t.test('Mongoose backend', skip, async t => {
         t.same((await job.info()).result, { one: ['two', ['three']] });
         await worker.unregister();
     });
-    // await t.test('Job dependencies', async t => {
-    //     minion.removeAfter = 0;
-    //     await minion.repair();
-    //     // t.equal((await minion.stats()).finished_jobs, 0);
-    //     const worker = await minion.worker().register();
-    //     const id = await minion.enqueue('test');
-    //     const id2 = await minion.enqueue('test');
-    //     const id3 = await minion.enqueue('test', [], { parents: [id, id2] });
-    //     const job = await worker.dequeue();
-    //     t.equal(job.id, id);
-    // });
+
+    await t.test('Repair missing worker', async t => {
+        const worker = await minion.worker().register();
+        const worker2 = await minion.worker().register();
+        t.not(worker.id, worker2.id);
+    
+        const id = await minion.enqueue('test');
+        const job = await worker2.dequeue();
+        t.equal(job.id, id);
+        t.equal((await job.info()).state, 'active');
+        const workerId = worker2.id;
+        const missingAfter = minion.missingAfter + 1;
+        t.ok(await worker2.info());
+        await minion.backend.mongoose.models.minionWorkers.updateOne(
+            {_id: minion.backend._oid(workerId)},
+            {notified: moment().subtract(missingAfter, 'milliseconds')}
+        );
+
+        await minion.repair();
+        t.ok(!(await worker2.info()));
+        const info = await job.info();
+        t.equal(info.state, 'failed');
+        t.equal(info.result, 'Worker went away');
+        await worker.unregister();
+      });
 
     await minion.end();
 });
