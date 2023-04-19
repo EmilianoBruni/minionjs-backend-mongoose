@@ -45,10 +45,13 @@ t.test('Mongoose backend', skip, async t => {
         t.same(await worker.info(), null);
     });
 
-    await t.test('Job results', async t => {
+    await t.test('Add task', async () => {
         minion.addTask('test', async () => {
             return;
         });
+    });
+
+    await t.test('Job results', async t => {
         const worker = minion.worker();
         await worker.register();
 
@@ -108,6 +111,16 @@ t.test('Mongoose backend', skip, async t => {
         t.same(finished, null);
         t.same(failed, undefined);
 
+        await worker.unregister();
+    });
+
+    await t.test('Wait for job', async t => {
+        const worker = await minion.worker().register();
+        setTimeout(() => minion.enqueue('test'), 500);
+        const job = await worker.dequeue(10000);
+        t.not(job, undefined);
+        await job.finish({ one: ['two', ['three']] });
+        t.same((await job.info()).result, { one: ['two', ['three']] });
         await worker.unregister();
     });
     // await t.test('Job dependencies', async t => {
