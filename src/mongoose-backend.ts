@@ -27,8 +27,7 @@ import {
 } from './schemas/minion.js';
 import Path from '@mojojs/path';
 import moment from 'moment';
-import { ObjectId, Types } from 'mongoose';
-import { Mongoose } from 'mongoose';
+import { ObjectId, Types, Mongoose } from 'mongoose';
 
 export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 export type MinionWorkerId = string;
@@ -164,11 +163,11 @@ export class MongooseBackend {
         if (this.mongoose.connection.readyState !== 1) return undefined;
         if (this._isReplicaSet !== undefined) return this._isReplicaSet;
         try {
-            this.mongoose.connection.db
-                .admin()
-                .command({ replSetGetStatus: 1 });
+            // if this works, then I'm under replicaset
+            this.mongoose.models.minionJobs.watch().on('change', t => { }).close();
             this._isReplicaSet = true;
-        } catch (error) {
+        } catch {
+            // i'm not under replicaset
             this._isReplicaSet = false;
         }
         return this._isReplicaSet;
@@ -199,16 +198,18 @@ export class MongooseBackend {
         options: DequeueOptions
     ): Promise<DequeuedJob | null> {
         const job = await this._try(id, options);
-        if (job !== null) return job;
+        if (job !== undefined) return job;
 
         if (this.isReplicaSet()) {
+            let timer;
             // TODO: reduce filter to match only new Job for this queue
             const newJob = this.mongoose.models.minionJobs.watch([]);
-            const timeoutPromise = new Promise(resolve =>
-                setTimeout(() => resolve(false), wait)
+            const timeoutPromise = new Promise(
+                resolve => (timer = setTimeout(resolve, wait))
             );
             const doc = await Promise.race([newJob.next(), timeoutPromise]);
-            console.log('PromiceRace: ' + JSON.stringify(doc));
+            //console.log('PromiceRace: ' + JSON.stringify(doc));
+            clearTimeout(timer);
         } else {
             // TODO: standalone
         }
@@ -321,7 +322,7 @@ export class MongooseBackend {
         });
 
         // minion expect an id field
-        results.addFields({id: {'$toString': "$_id"}});
+        results.addFields({ id: { $toString: '$_id' } });
 
         const jobs = await results.exec();
 
@@ -431,14 +432,13 @@ export class MongooseBackend {
     /**
      * Remove `failed`, `finished` or `inactive` job from queue.
      */
-    async removeJob(id:MinionJobId):Promise<boolean> {
-
+    async removeJob(id: MinionJobId): Promise<boolean> {
         const res = await this.mongoose.models.minionJobs.deleteOne({
-            _id: this._oid(id), 
-            state: {'$in': ['inactive', 'failed', 'finished']}
+            _id: this._oid(id),
+            state: { $in: ['inactive', 'failed', 'finished'] }
         });
 
-        return (res.deletedCount === 1);
+        return res.deletedCount === 1;
     }
 
     /**
@@ -589,8 +589,7 @@ export class MongooseBackend {
         ['lax', 'parents', 'priority', 'queue'].forEach(k => {
             /* @ts-ignore:enable */
             if (k in options) update[k] = options[k];
-        }
-        );
+        });
 
         const res = await this.mongoose.models.minionJobs.updateOne(
             filter,
@@ -645,14 +644,15 @@ export class MongooseBackend {
                 });
                 // add virtual id to match id request of minion module
                 // as number
-                schema.virtual('id')
-                .get(function () {
-                    /* @ts-ignore:enable */
-                    return this._id.toString();
-                })
-                .set(function(v) {
-                    this._id = new Types.ObjectId(v)
-                })
+                schema
+                    .virtual('id')
+                    .get(function () {
+                        /* @ts-ignore:enable */
+                        return this._id.toString();
+                    })
+                    .set(function (v) {
+                        this._id = new Types.ObjectId(v);
+                    });
                 this.mongoose.model(model.alias, schema);
             }
         );
@@ -787,7 +787,6 @@ export class MongooseBackend {
             );
             job[0].id = job[0].id?.toString();
         }
-
         //   UPDATE minion_jobs SET started = NOW(), state = 'active', worker = ${id}
         return job[0];
     }
