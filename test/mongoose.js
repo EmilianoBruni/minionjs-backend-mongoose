@@ -129,7 +129,7 @@ t.test('Mongoose backend', skip, async t => {
         const worker = await minion.worker().register();
         const worker2 = await minion.worker().register();
         t.not(worker.id, worker2.id);
-    
+
         const id = await minion.enqueue('test');
         const job = await worker2.dequeue();
         t.equal(job.id, id);
@@ -138,8 +138,8 @@ t.test('Mongoose backend', skip, async t => {
         const missingAfter = minion.missingAfter + 1;
         t.ok(await worker2.info());
         await minion.backend.mongoose.models.minionWorkers.updateOne(
-            {_id: minion.backend._oid(workerId)},
-            {notified: moment().subtract(missingAfter, 'milliseconds')}
+            { _id: minion.backend._oid(workerId) },
+            { notified: moment().subtract(missingAfter, 'milliseconds') }
         );
 
         await minion.repair();
@@ -148,7 +148,18 @@ t.test('Mongoose backend', skip, async t => {
         t.equal(info.state, 'failed');
         t.equal(info.result, 'Worker went away');
         await worker.unregister();
-      });
+    });
+
+    await t.test('Repair abandoned job', async t => {
+        const worker = await minion.worker().register();
+        await minion.enqueue('test');
+        const job = await worker.dequeue();
+        await worker.unregister();
+        await minion.repair();
+        const info = await job.info();
+        t.equal(info.state, 'failed');
+        t.equal(info.result, 'Worker went away');
+    });
 
     await minion.end();
 });
