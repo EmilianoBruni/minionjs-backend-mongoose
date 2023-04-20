@@ -181,6 +181,7 @@ t.test('Mongoose backend', skip, async t => {
         }
     );
 
+<<<<<<< HEAD
     await t.test('Repair old jobs', async t => {
         t.equal(minion.removeAfter, 172800000);
 
@@ -216,5 +217,7 @@ t.test('Mongoose backend', skip, async t => {
         t.ok(!(await minion.job(id3)));
     });
 
+=======
+>>>>>>> 87270c0a940e776c74625c750d6be7b226382223
     await minion.end();
 });
