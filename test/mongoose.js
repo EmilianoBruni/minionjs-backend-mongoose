@@ -181,7 +181,6 @@ t.test('Mongoose backend', skip, async t => {
         }
     );
 
-<<<<<<< HEAD
     await t.test('Repair old jobs', async t => {
         t.equal(minion.removeAfter, 172800000);
 
@@ -196,10 +195,10 @@ t.test('Mongoose backend', skip, async t => {
 
         const moo = minion.backend.mongoose;
         const moj = moo.models.minionJobs;
-        for await (const id of [id2, id3]) {
+        for await (const i of [id2, id3]) {
             const finished = (await moj.findById(minion.backend._oid(id)))
                 .finished;
-            await moj.updateOne({ _id: minion.backend._oid(id) }, [
+            await moj.updateOne({ _id: minion.backend._oid(i) }, [
                 {
                     $set: {
                         finished: moment(finished)
@@ -217,7 +216,48 @@ t.test('Mongoose backend', skip, async t => {
         t.ok(!(await minion.job(id3)));
     });
 
-=======
->>>>>>> 87270c0a940e776c74625c750d6be7b226382223
+    await t.test('Repair stuck jobs', async t => {
+        t.equal(minion.stuckAfter, 172800000);
+
+        const worker = await minion.worker().register();
+        const id = await minion.enqueue('test');
+        const id2 = await minion.enqueue('test');
+        const id3 = await minion.enqueue('test');
+        const id4 = await minion.enqueue('test');
+
+        const moo = minion.backend.mongoose;
+        const moj = moo.models.minionJobs;
+        const stuck = minion.stuckAfter + 1;
+        for await (const i of [id, id2, id3, id4]) {
+            await moj.updateOne({ _id: minion.backend._oid(i) }, [
+                {
+                    $set: {
+                        delayed: moment()
+                            .subtract(stuck, 'milliseconds')
+                            .toDate()
+                    }
+                }
+            ]);
+        }
+
+        const job = await worker.dequeue(0, { id: id4 });
+        await job.finish('Works!');
+        const job2 = await worker.dequeue(0, { id: id2 });
+        await minion.repair();
+
+        t.equal((await job2.info()).state, 'active');
+        t.ok(await job2.finish());
+        const job3 = await minion.job(id);
+        t.equal((await job3.info()).state, 'failed');
+        t.equal((await job3.info()).result, 'Job appears stuck in queue');
+        const job4 = await minion.job(id3);
+        t.equal((await job4.info()).state, 'failed');
+        t.equal((await job4.info()).result, 'Job appears stuck in queue');
+        const job5 = await minion.job(id4);
+        t.equal((await job5.info()).state, 'finished');
+        t.equal((await job5.info()).result, 'Works!');
+        await worker.unregister();
+    });
+
     await minion.end();
 });
