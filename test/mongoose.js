@@ -2,8 +2,8 @@ import os from 'node:os';
 import { MongooseBackend } from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mojo, { util } from '@mojojs/core';
-import mongoose from 'mongoose';
 import moment from 'moment';
+import mongoose from 'mongoose';
 import t from 'tap';
 
 const skip =
@@ -159,6 +159,61 @@ t.test('Mongoose backend', skip, async t => {
         const info = await job.info();
         t.equal(info.state, 'failed');
         t.equal(info.result, 'Worker went away');
+    });
+
+    await t.test(
+        'Repair abandoned job in minion_foreground queue (have to be handled manually)',
+        async t => {
+            const worker = await minion.worker().register();
+            const id = await minion.enqueue('test', [], {
+                queue: 'minion_foreground'
+            });
+            const job = await worker.dequeue(0, {
+                queues: ['minion_foreground']
+            });
+            t.equal(job.id, id);
+            await worker.unregister();
+            await minion.repair();
+            const info = await job.info();
+            t.equal(info.state, 'active');
+            t.equal(info.queue, 'minion_foreground');
+            t.same(info.result, null);
+        }
+    );
+
+    await t.test('Repair old jobs', async t => {
+        t.equal(minion.removeAfter, 172800000);
+
+        const worker = await minion.worker().register();
+        const id = await minion.enqueue('test');
+        const id2 = await minion.enqueue('test');
+        const id3 = await minion.enqueue('test');
+
+        await worker.dequeue().then(job => job.perform());
+        await worker.dequeue().then(job => job.perform());
+        await worker.dequeue().then(job => job.perform());
+
+        const moo = minion.backend.mongoose;
+        const moj = moo.models.minionJobs;
+        for await (const id of [id2, id3]) {
+            const finished = (await moj.findById(minion.backend._oid(id)))
+                .finished;
+            await moj.updateOne({ _id: minion.backend._oid(id) }, [
+                {
+                    $set: {
+                        finished: moment(finished)
+                            .subtract(minion.removeAfter + 1, 'milliseconds')
+                            .toDate()
+                    }
+                }
+            ]);
+        }
+
+        await worker.unregister();
+        await minion.repair();
+        t.ok(await minion.job(id));
+        t.ok(!(await minion.job(id2)));
+        t.ok(!(await minion.job(id3)));
     });
 
     await minion.end();
