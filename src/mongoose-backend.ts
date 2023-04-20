@@ -300,7 +300,9 @@ export class MongooseBackend {
 
         if (options.before !== undefined)
             results.match({
-                $lt: this._oid(options.before)
+                _id: {
+                    $lt: this._oid(options.before)
+                }
             });
         if (options.notes !== undefined)
             options.notes.forEach(note => {
@@ -361,7 +363,9 @@ export class MongooseBackend {
 
         if (options.before !== undefined)
             results.match({
-                $lt: this._oid(options.before)
+                _id: {
+                    $lt: this._oid(options.before)
+                }
             });
 
         const facetPipeLine = mW.aggregate();
