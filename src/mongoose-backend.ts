@@ -307,7 +307,7 @@ export class MongooseBackend {
         results.match({
             $or: [
                 { state: { $ne: 'inactive' } },
-                { expires: { $gt: moment() } },
+                { expires: { $gt: moment().toDate() } },
                 { expires: { $exists: false } }
             ]
         });
@@ -417,7 +417,7 @@ export class MongooseBackend {
             {
                 host: this._hostname,
                 pid: process.pid,
-                notified: moment(),
+                notified: moment().toDate(),
                 status: status
             },
             {
@@ -454,7 +454,7 @@ export class MongooseBackend {
         // Workers without heartbeat
         await mWorkers.deleteMany({
             notified: {
-                $lt: moment().subtract(minion.missingAfter, 'milliseconds')
+                $lt: moment().subtract(minion.missingAfter, 'milliseconds').toDate()
             }
         });
 
@@ -481,7 +481,7 @@ export class MongooseBackend {
             .match({
                 state: 'finished',
                 finished: {
-                    $lte: moment().subtract(minion.removeAfter, 'milliseconds')
+                    $lte: moment().subtract(minion.removeAfter, 'milliseconds').toDate()
                 }
             })
             .append({
@@ -493,7 +493,7 @@ export class MongooseBackend {
                             $match: {
                                 $expr: {
                                     $and: [
-                                        { $in: ['$$parent', '$parent'] },
+                                        { $in: ['$$parent', '$parents'] },
                                         { $ne: ['$state', 'finished'] }
                                     ]
                                 }
@@ -506,9 +506,8 @@ export class MongooseBackend {
 
         const jobsToDelete: Types.ObjectId[] = [];
         for await (const job of jobs) {
-            if (job.parents.length() == 0) jobsToDelete.push(job._id);
+            if (job.parents.length == 0) jobsToDelete.push(job._id);
         }
-
         if (jobsToDelete.length > 0)
             await mJobs.deleteMany({ _id: { $in: jobsToDelete } });
 
@@ -517,7 +516,7 @@ export class MongooseBackend {
         //   )
         await mJobs.deleteMany({
             state: 'inactive',
-            expires: { $lte: moment() }
+            expires: { $lte: moment().toDate() }
         });
 
         // Jobs with missing worker (can be retried)
@@ -537,7 +536,7 @@ export class MongooseBackend {
             {
                 state: 'inactive',
                 delayed: {
-                    $lt: moment().subtract(minion.stuckAfter, 'milliseconds')
+                    $lt: moment().subtract(minion.stuckAfter, 'milliseconds').toDate()
                 }
             },
             { $set: { state: 'failed', result: 'Job appears stuck in queue' } }
