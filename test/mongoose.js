@@ -259,5 +259,103 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
+    await t.test('List workers', async t => {
+        const worker = await minion.worker().register();
+        const worker2 = minion.worker();
+        worker2.status.whatever = 'works!';
+        await worker2.register();
+        const results = await minion.backend.listWorkers(0, 10);
+        t.equal(results.total, 2);
+
+        const host = os.hostname();
+        const batch = results.workers;
+        t.equal(batch[0].id, worker2.id);
+        t.equal(batch[0].host, host);
+        t.equal(batch[0].pid, process.pid);
+        t.same(batch[0].started instanceof Date, true);
+        t.equal(batch[1].id, worker.id);
+        t.equal(batch[1].host, host);
+        t.equal(batch[1].pid, process.pid);
+        t.same(batch[1].started instanceof Date, true);
+        t.notOk(batch[2]);
+
+        const results2 = await minion.backend.listWorkers(0, 1);
+        const batch2 = results2.workers;
+        t.equal(results2.total, 2);
+        t.equal(batch2[0].id, worker2.id);
+        t.equal(batch2[0].status.whatever, 'works!');
+        t.notOk(batch2[1]);
+        worker2.status.whatever = 'works too!';
+        await worker2.register();
+        const batch3 = (await minion.backend.listWorkers(0, 1)).workers;
+        t.equal(batch3[0].status.whatever, 'works too!');
+        const batch4 = (await minion.backend.listWorkers(1, 1)).workers;
+        t.equal(batch4[0].id, worker.id);
+        t.notOk(batch4[1]);
+        await worker.unregister();
+        await worker2.unregister();
+
+        await minion.reset({ all: true });
+
+        const worker3 = await minion
+            .worker({ status: { test: 'one' } })
+            .register();
+        const worker4 = await minion
+            .worker({ status: { test: 'two' } })
+            .register();
+        const worker5 = await minion
+            .worker({ status: { test: 'three' } })
+            .register();
+        const worker6 = await minion
+            .worker({ status: { test: 'four' } })
+            .register();
+        const worker7 = await minion
+            .worker({ status: { test: 'five' } })
+            .register();
+        const workers = minion.workers();
+        workers.fetch = 2;
+        t.notOk(workers.options.before);
+        t.equal((await workers.next()).status.test, 'five');
+        t.equal(workers.options.before, worker6.id);
+        t.equal((await workers.next()).status.test, 'four');
+        t.equal((await workers.next()).status.test, 'three');
+        t.equal(workers.options.before, worker4.id);
+        t.equal((await workers.next()).status.test, 'two');
+        t.equal((await workers.next()).status.test, 'one');
+        t.equal(workers.options.before, worker3.id);
+        t.notOk(await workers.next());
+
+        const workers1 = minion.workers({ ids: [worker4.id, worker6.id, worker3.id] });
+        const result = [];
+        for await (const worker of workers1) {
+            result.push(worker.status.test);
+        }
+        t.same(result, ['four', 'two', 'one']);
+
+        const workers2 = minion.workers({ ids: [worker4.id, worker6.id, worker3.id] });
+        t.notOk(workers2.options.before);
+        t.equal((await workers2.next()).status.test, 'four');
+        t.equal(workers2.options.before, worker3.id);
+        t.equal((await workers2.next()).status.test, 'two');
+        t.equal((await workers2.next()).status.test, 'one');
+        t.notOk(await workers2.next());
+
+        const workers3 = minion.workers();
+        workers3.fetch = 2;
+        t.equal((await workers3.next()).status.test, 'five');
+        t.equal((await workers3.next()).status.test, 'four');
+        t.equal(await workers3.total(), 5);
+        await worker7.unregister();
+        await worker6.unregister();
+        await worker5.unregister();
+        t.equal((await workers3.next()).status.test, 'two');
+        t.equal((await workers3.next()).status.test, 'one');
+        t.notOk(await workers3.next());
+        t.equal(await workers3.total(), 4);
+        t.equal(await minion.workers().total(), 2);
+        await worker4.unregister();
+        await worker3.unregister();
+    });
+
     await minion.end();
 });
