@@ -164,7 +164,10 @@ export class MongooseBackend {
         if (this._isReplicaSet !== undefined) return this._isReplicaSet;
         try {
             // if this works, then I'm under replicaset
-            this.mongoose.models.minionJobs.watch().on('change', t => { }).close();
+            this.mongoose.models.minionJobs
+                .watch()
+                .on('change', t => {})
+                .close();
             this._isReplicaSet = true;
         } catch {
             // i'm not under replicaset
@@ -386,8 +389,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                merge[k])
+                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                    merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -454,7 +457,9 @@ export class MongooseBackend {
         // Workers without heartbeat
         await mWorkers.deleteMany({
             notified: {
-                $lt: moment().subtract(minion.missingAfter, 'milliseconds').toDate()
+                $lt: moment()
+                    .subtract(minion.missingAfter, 'milliseconds')
+                    .toDate()
             }
         });
 
@@ -481,7 +486,9 @@ export class MongooseBackend {
             .match({
                 state: 'finished',
                 finished: {
-                    $lte: moment().subtract(minion.removeAfter, 'milliseconds').toDate()
+                    $lte: moment()
+                        .subtract(minion.removeAfter, 'milliseconds')
+                        .toDate()
                 }
             })
             .append({
@@ -536,7 +543,9 @@ export class MongooseBackend {
             {
                 state: 'inactive',
                 delayed: {
-                    $lt: moment().subtract(minion.stuckAfter, 'milliseconds').toDate()
+                    $lt: moment()
+                        .subtract(minion.stuckAfter, 'milliseconds')
+                        .toDate()
                 }
             },
             { $set: { state: 'failed', result: 'Job appears stuck in queue' } }
