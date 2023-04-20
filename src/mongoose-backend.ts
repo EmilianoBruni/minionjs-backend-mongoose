@@ -289,7 +289,8 @@ export class MongooseBackend {
         limit: number,
         options: ListJobsOptions = {}
     ): Promise<JobList> {
-        const results = this.mongoose.models.minionJobs.aggregate();
+        const mJ = this.mongoose.models.minionJobs;
+        const results = mJ.aggregate<JobList>();
         if (options.ids !== undefined)
             results.match({
                 _id: {
@@ -315,21 +316,30 @@ export class MongooseBackend {
             ]
         });
 
-        results.sort({ _id: -1 }).skip(offset).limit(limit);
-
-        results.lookup({
+        const facetPipeLine = mJ.aggregate();
+        facetPipeLine.addFields({ id: { $toString: '$_id' } });
+        facetPipeLine.sort({ _id: -1 }).skip(offset).limit(limit);
+        facetPipeLine.lookup({
             from: 'minion_jobs',
             localField: 'parents',
             foreignField: 'children',
             as: 'children'
         });
 
-        // minion expect an id field
-        results.addFields({ id: { $toString: '$_id' } });
+        results.facet({
+            total: [{ '$count': 'count' }],
+            /* @ts-ignore:enable */
+            documents: facetPipeLine.pipeline()
+        })
 
-        const jobs = await results.exec();
+        results.project({
+            total: {$arrayElemAt: [ "$total.count", 0 ]}, 
+            jobs: "$documents"
+        });
 
-        return { total: jobs.length, jobs: jobs };
+        const jobs = (await results.exec())[0];
+
+        return jobs;
     }
 
     /**
@@ -340,7 +350,8 @@ export class MongooseBackend {
         limit: number,
         options: ListWorkersOptions = {}
     ): Promise<WorkerList> {
-        const results = this.mongoose.models.minionWorkers.aggregate();
+        const mW = this.mongoose.models.minionWorkers;
+        const results = mW.aggregate<WorkerList>();
         if (options.ids !== undefined)
             results.match({
                 _id: {
@@ -353,9 +364,12 @@ export class MongooseBackend {
                 $lt: this._oid(options.before)
             });
 
-        results.sort({ _id: -1 }).skip(offset).limit(limit);
+        const facetPipeLine = mW.aggregate();
 
-        results.lookup({
+        // minion expect an id field
+        facetPipeLine.addFields({ id: { $toString: '$_id' } });
+        facetPipeLine.sort({ _id: -1 }).skip(offset).limit(limit);
+        facetPipeLine.lookup({
             from: 'minion_jobs',
             let: { worker_id: '$_id' },
             pipeline: [
@@ -374,9 +388,20 @@ export class MongooseBackend {
             as: 'jobs'
         });
 
-        const workers = await results.exec();
+        results.facet({
+            total: [{ '$count': 'count' }],
+            /* @ts-ignore:enable */
+            documents: facetPipeLine.pipeline()
+        })
 
-        return { total: workers.length, workers: workers };
+        results.project({
+            total: {$arrayElemAt: [ "$total.count", 0 ]}, 
+            workers: "$documents"
+        });
+
+        const workers = (await results.exec())[0];
+
+        return workers;
     }
 
     /**
