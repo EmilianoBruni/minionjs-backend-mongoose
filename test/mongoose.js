@@ -325,14 +325,18 @@ t.test('Mongoose backend', skip, async t => {
         t.equal(workers.options.before, worker3.id);
         t.notOk(await workers.next());
 
-        const workers1 = minion.workers({ ids: [worker4.id, worker6.id, worker3.id] });
+        const workers1 = minion.workers({
+            ids: [worker4.id, worker6.id, worker3.id]
+        });
         const result = [];
         for await (const worker of workers1) {
             result.push(worker.status.test);
         }
         t.same(result, ['four', 'two', 'one']);
 
-        const workers2 = minion.workers({ ids: [worker4.id, worker6.id, worker3.id] });
+        const workers2 = minion.workers({
+            ids: [worker4.id, worker6.id, worker3.id]
+        });
         t.notOk(workers2.options.before);
         t.equal((await workers2.next()).status.test, 'four');
         t.equal(workers2.options.before, worker3.id);
@@ -355,6 +359,25 @@ t.test('Mongoose backend', skip, async t => {
         t.equal(await minion.workers().total(), 2);
         await worker4.unregister();
         await worker3.unregister();
+    });
+
+    await t.test('Shared lock', async t => {
+        t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
+        t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
+        t.ok(await minion.isLocked('bar'));
+        t.ok(await minion.lock('bar', -3600000, { limit: 3 }));
+        t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
+        t.ok(!(await minion.lock('bar', 3600000, { limit: 3 })));
+        t.ok(await minion.lock('baz', 3600000, { limit: 3 }));
+        t.ok(await minion.unlock('bar'));
+        t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
+        t.ok(await minion.unlock('bar'));
+        t.ok(await minion.unlock('bar'));
+        t.ok(await minion.unlock('bar'));
+        t.ok(!(await minion.unlock('bar')));
+        t.ok(!(await minion.isLocked('bar')));
+        t.ok(await minion.unlock('baz'));
+        t.ok(!(await minion.unlock('baz')));
     });
 
     await minion.end();
