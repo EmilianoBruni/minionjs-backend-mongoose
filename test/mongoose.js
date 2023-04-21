@@ -361,6 +361,24 @@ t.test('Mongoose backend', skip, async t => {
         await worker3.unregister();
     });
 
+    await t.test('Exclusive lock', async t => {
+        t.ok(await minion.lock('foo', 3600000));
+        t.ok(!(await minion.lock('foo', 3600000)));
+        t.ok(await minion.unlock('foo'));
+        t.ok(!(await minion.unlock('foo')));
+        t.ok(await minion.lock('foo', -3600000));
+        t.ok(await minion.lock('foo', 0));
+        t.ok(!(await minion.isLocked('foo')));
+        t.ok(await minion.lock('foo', 3600000));
+        t.ok(await minion.isLocked('foo'));
+        t.ok(!(await minion.lock('foo', -3600000)));
+        t.ok(!(await minion.lock('foo', 3600000)));
+        t.ok(await minion.unlock('foo'));
+        t.ok(!(await minion.unlock('foo')));
+        t.ok(await minion.lock('foo', 3600000, { limit: 1 }));
+        t.ok(!(await minion.lock('foo', 3600000, { limit: 1 })));
+    });
+
     await t.test('Shared lock', async t => {
         t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
         t.ok(await minion.lock('bar', 3600000, { limit: 3 }));
@@ -378,6 +396,46 @@ t.test('Mongoose backend', skip, async t => {
         t.ok(!(await minion.isLocked('bar')));
         t.ok(await minion.unlock('baz'));
         t.ok(!(await minion.unlock('baz')));
+    });
+
+    await t.test('List locks', async t => {
+        t.equal((await minion.stats()).active_locks, 1);
+        const results = await minion.backend.listLocks(0, 2);
+        t.equal(results.locks[0].name, 'foo');
+        t.same(results.locks[0].expires instanceof Date, true);
+        t.notOk(results.locks[1]);
+        t.equal(results.total, 1);
+        await minion.unlock('foo');
+
+        await minion.lock('yada', 3600000, { limit: 2 });
+        await minion.lock('test', 3600000, { limit: 1 });
+        await minion.lock('yada', 3600000, { limit: 2 });
+        t.equal((await minion.stats()).active_locks, 3);
+        const results2 = await minion.backend.listLocks(1, 1);
+        t.equal(results2.locks[0].name, 'test');
+        t.same(results2.locks[0].expires instanceof Date, true);
+        t.notOk(results2.locks[1]);
+        t.equal(results2.total, 3);
+
+        const results3 = await minion.backend.listLocks(0, 10, {
+            names: ['yada']
+        });
+        t.equal(results3.locks[0].name, 'yada');
+        t.same(results3.locks[0].expires instanceof Date, true);
+        t.equal(results3.locks[1].name, 'yada');
+        t.same(results3.locks[1].expires instanceof Date, true);
+        t.notOk(results3.locks[2]);
+        t.equal(results3.total, 2);
+
+        await minion.backend.mongoose.models.minionLocks.updateMany(
+            {
+                name: 'yada'
+            },
+            { expires: moment().subtract(1, 'seconds') }
+        );
+        await minion.unlock('test');
+        t.equal((await minion.stats()).active_locks, 0);
+        t.same((await minion.backend.listLocks(0, 10)).total, 0);
     });
 
     await minion.end();
