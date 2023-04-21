@@ -166,7 +166,7 @@ export class MongooseBackend {
             // if this works, then I'm under replicaset
             this.mongoose.models.minionJobs
                 .watch()
-                .on('change', t => {})
+                .on('change', t => { })
                 .close();
             this._isReplicaSet = true;
         } catch {
@@ -335,7 +335,7 @@ export class MongooseBackend {
         })
 
         results.project({
-            total: {$arrayElemAt: [ "$total.count", 0 ]}, 
+            total: { $arrayElemAt: ["$total.count", 0] },
             jobs: "$documents"
         });
 
@@ -399,13 +399,34 @@ export class MongooseBackend {
         })
 
         results.project({
-            total: {$arrayElemAt: [ "$total.count", 0 ]}, 
+            total: { $arrayElemAt: ["$total.count", 0] },
             workers: "$documents"
         });
 
         const workers = (await results.exec())[0];
 
         return workers;
+    }
+
+    /**
+   * Try to acquire a named lock that will expire automatically after the given amount of time in milliseconds. An
+   * expiration time of `0` can be used to check if a named lock already exists without creating one.
+   */
+    async lock(name: string, duration: number, options: LockOptions = {}): Promise<boolean> {
+        const limit = options.limit ?? 1;
+        const now = moment();
+
+        const mL = this.mongoose.models.minionLocks;
+
+        await mL.deleteMany({ expires: { '$lt': now.toDate() } });
+
+        if ((await mL.countDocuments({ name: name })) >= limit) return false;
+
+        const new_expires = now.add(duration, 'milliseconds');
+        const new_lock = new mL({ name: name, expires: new_expires });
+        await new_lock.save();
+
+        return true;
     }
 
     /**
@@ -418,8 +439,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                    merge[k])
+            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -631,6 +652,25 @@ export class MongooseBackend {
             update
         );
         return res.modifiedCount > 0;
+    }
+
+    /**
+   * Release a named lock.
+   */
+    async unlock(name: string): Promise<boolean> {
+        const mL = this.mongoose.models.minionLocks;
+        const result  = await mL.aggregate()
+            .match({
+                expires: { '$gt': moment().toDate() },
+                name: name
+            })
+            .sort({ expires: 1 }).limit(1);
+        if (result.length === 0) {
+            return false
+        } else {
+            await mL.deleteOne({ _id: result[0]._id });
+            return true;
+        }
     }
 
     /**
