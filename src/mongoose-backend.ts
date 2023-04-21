@@ -166,7 +166,7 @@ export class MongooseBackend {
             // if this works, then I'm under replicaset
             this.mongoose.models.minionJobs
                 .watch()
-                .on('change', t => { })
+                .on('change', t => {})
                 .close();
             this._isReplicaSet = true;
         } catch {
@@ -329,19 +329,65 @@ export class MongooseBackend {
         });
 
         results.facet({
-            total: [{ '$count': 'count' }],
+            total: [{ $count: 'count' }],
             /* @ts-ignore:enable */
             documents: facetPipeLine.pipeline()
-        })
+        });
 
         results.project({
-            total: { $arrayElemAt: ["$total.count", 0] },
-            jobs: "$documents"
+            total: {
+                $cond: {
+                    if: { $eq: [{ $size: '$total' }, 0] },
+                    then: 0,
+                    else: { $arrayElemAt: ['$total.count', 0] }
+                }
+            },
+            jobs: '$documents'
         });
 
         const jobs = (await results.exec())[0];
 
         return jobs;
+    }
+
+    /**
+     * Returns information about locks in batches.
+     */
+    async listLocks(
+        offset: number,
+        limit: number,
+        options: ListLocksOptions = {}
+    ): Promise<LockList> {
+        const mL = this.mongoose.models.minionLocks;
+        const results = mL.aggregate<LockList>();
+        results.match({ expires: { $gt: moment().toDate() } });
+        if (options.names !== undefined)
+            results.match({
+                name: { $in: options.names ?? [] }
+            });
+        results.facet({
+            total: [{ $count: 'count' }],
+            documents: [
+                { $sort: { _id: -1 } },
+                { $skip: offset },
+                { $limit: limit },
+                { $project: { _id: 0 } }
+            ]
+        });
+
+        results.project({
+            total: {
+                $cond: {
+                    if: { $eq: [{ $size: '$total' }, 0] },
+                    then: 0,
+                    else: { $arrayElemAt: ['$total.count', 0] }
+                }
+            },
+            locks: '$documents'
+        });
+
+        const locks = (await results.exec())[0];
+        return locks;
     }
 
     /**
@@ -393,14 +439,20 @@ export class MongooseBackend {
         });
 
         results.facet({
-            total: [{ '$count': 'count' }],
+            total: [{ $count: 'count' }],
             /* @ts-ignore:enable */
             documents: facetPipeLine.pipeline()
-        })
+        });
 
         results.project({
-            total: { $arrayElemAt: ["$total.count", 0] },
-            workers: "$documents"
+            total: {
+                $cond: {
+                    if: { $eq: [{ $size: '$total' }, 0] },
+                    then: 0,
+                    else: { $arrayElemAt: ['$total.count', 0] }
+                }
+            },
+            workers: '$documents'
         });
 
         const workers = (await results.exec())[0];
@@ -409,22 +461,28 @@ export class MongooseBackend {
     }
 
     /**
-   * Try to acquire a named lock that will expire automatically after the given amount of time in milliseconds. An
-   * expiration time of `0` can be used to check if a named lock already exists without creating one.
-   */
-    async lock(name: string, duration: number, options: LockOptions = {}): Promise<boolean> {
+     * Try to acquire a named lock that will expire automatically after the given amount of time in milliseconds. An
+     * expiration time of `0` can be used to check if a named lock already exists without creating one.
+     */
+    async lock(
+        name: string,
+        duration: number,
+        options: LockOptions = {}
+    ): Promise<boolean> {
         const limit = options.limit ?? 1;
         const now = moment();
 
         const mL = this.mongoose.models.minionLocks;
 
-        await mL.deleteMany({ expires: { '$lt': now.toDate() } });
+        await mL.deleteMany({ expires: { $lt: now.toDate() } });
 
         if ((await mL.countDocuments({ name: name })) >= limit) return false;
 
-        const new_expires = now.add(duration, 'milliseconds');
-        const new_lock = new mL({ name: name, expires: new_expires });
-        await new_lock.save();
+        const new_expires = now.clone().add(duration / 1000, 'seconds');
+        if (new_expires > now) {
+            const new_lock = new mL({ name: name, expires: new_expires });
+            await new_lock.save();
+        }
 
         return true;
     }
@@ -439,8 +497,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                merge[k])
+                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                    merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -655,18 +713,144 @@ export class MongooseBackend {
     }
 
     /**
-   * Release a named lock.
-   */
+     * Get statistics for the job queue.
+     */
+    async stats(): Promise<MinionStats> {
+        const mood = this.mongoose.models;
+        const now = moment().toDate();
+        console.log(now);
+        const statsJobs = (
+            await mood.minionJobs
+                .aggregate<MinionStats>()
+                .facet({
+                    inactive_jobs: [
+                        {
+                            $match: {
+                                state: 'inactive',
+                                $or: [
+                                    { expires: null },
+                                    { expires: { $gt: now } }
+                                ]
+                            }
+                        },
+                        { $count: 'count' }
+                    ],
+                    active_jobs: [
+                        { $match: { state: 'active' } },
+                        { $count: 'count' }
+                    ],
+                    failed_jobs: [
+                        { $match: { state: 'failed' } },
+                        { $count: 'count' }
+                    ],
+                    finished_jobs: [
+                        { $match: { state: 'finished' } },
+                        { $count: 'count' }
+                    ],
+                    delayed_jobs: [
+                        {
+                            $match: { state: 'inactive', delayed: { $gt: now } }
+                        },
+                        { $count: 'count' }
+                    ]
+                })
+                .project({
+                    inactive_jobs: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$inactive_jobs' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$inactive_jobs.count', 0] }
+                        }
+                    },
+                    active_jobs: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$active_jobs' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$active_jobs.count', 0] }
+                        }
+                    },
+                    failed_jobs: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$failed_jobs' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$failed.count', 0] }
+                        }
+                    },
+                    finished_jobs: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$finished_jobs' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$finished.count', 0] }
+                        }
+                    },
+                    delayed_jobs: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$delayed_jobs' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$delayed.count', 0] }
+                        }
+                    }
+                })
+        )[0];
+        const statsWorkers = (
+            await mood.minionWorkers
+                .aggregate<MinionStats>()
+                .facet({
+                    workers: [{ $count: 'count' }],
+                    active_workers: [
+                        { $match: { state: 'active' } },
+                        { $count: 'count' }
+                    ]
+                })
+                .project({
+                    workers: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$workers' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$workers.count', 0] }
+                        }
+                    },
+                    active_workers: {
+                        $cond: {
+                            if: { $eq: [{ $size: '$active_workers' }, 0] },
+                            then: 0,
+                            else: { $arrayElemAt: ['$active_jobs.workers', 0] }
+                        }
+                    }
+                })
+        )[0];
+
+        // TODO: enqueued_jobs
+        // TODO: uptime
+        //     (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM minion_jobs_id_seq) AS enqueued_jobs,
+        //     EXTRACT(EPOCH FROM NOW() - PG_POSTMASTER_START_TIME()) AS uptime
+
+        // I don't know why here required to works toLocaleString()
+        const statsLocks = await mood.minionLocks.countDocuments({
+            expires: { $gt: now }
+        });
+
+        statsWorkers.inactive_workers =
+            statsWorkers.workers - statsWorkers.active_workers;
+
+        return { ...statsJobs, ...statsWorkers, active_locks: statsLocks };
+    }
+
+    /**
+     * Release a named lock.
+     */
     async unlock(name: string): Promise<boolean> {
         const mL = this.mongoose.models.minionLocks;
-        const result  = await mL.aggregate()
+        const result = await mL
+            .aggregate()
             .match({
-                expires: { '$gt': moment().toDate() },
+                expires: { $gt: moment().toDate() },
                 name: name
             })
-            .sort({ expires: 1 }).limit(1);
+            .sort({ expires: 1 })
+            .limit(1);
         if (result.length === 0) {
-            return false
+            return false;
         } else {
             await mL.deleteOne({ _id: result[0]._id });
             return true;
