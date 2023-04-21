@@ -36,7 +36,8 @@ export const minionJobsSchema: MongooseSchema = {
     name: 'minion_jobs',
     alias: 'minionJobs',
     options: {
-        timestamps: false
+        timestamps: false,
+        versionKey: false
     },
     schema: {
         _id: { type: Schema.Types.ObjectId, auto: true },
@@ -79,7 +80,8 @@ export const minionWorkersSchema: MongooseSchema = {
     name: 'minon_workers',
     alias: 'minionWorkers',
     options: {
-        timestamps: false
+        timestamps: false,
+        versionKey: false
     },
     schema: {
         _id: Schema.Types.ObjectId,
@@ -102,7 +104,8 @@ export const minionLocksSchema: MongooseSchema = {
     name: 'minion_locks',
     alias: 'minionLocks',
     options: {
-        timestamps: false
+        timestamps: false,
+        versionKey: false
     },
     schema: {
         name: { type: String, required: true },
