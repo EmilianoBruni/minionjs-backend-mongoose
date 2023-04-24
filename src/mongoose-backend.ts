@@ -716,7 +716,8 @@ export class MongooseBackend {
      * Get statistics for the job queue.
      */
     async stats(): Promise<MinionStats> {
-        const mood = this.mongoose.models;
+        const moo = this.mongoose;
+        const mood = moo.models;
         const now = moment().toDate();
         console.log(now);
         const statsJobs = (
@@ -752,6 +753,11 @@ export class MongooseBackend {
                             $match: { state: 'inactive', delayed: { $gt: now } }
                         },
                         { $count: 'count' }
+                    ],
+                    active_workers: [
+                        { $match: { state: 'active' } },
+                        { $group: { _id: '$worker' } },
+                        { $count: 'count' }
                     ]
                 })
                 .project({
@@ -773,57 +779,81 @@ export class MongooseBackend {
                         $cond: {
                             if: { $eq: [{ $size: '$failed_jobs' }, 0] },
                             then: 0,
-                            else: { $arrayElemAt: ['$failed.count', 0] }
+                            else: { $arrayElemAt: ['$failed_jobs.count', 0] }
                         }
                     },
                     finished_jobs: {
                         $cond: {
                             if: { $eq: [{ $size: '$finished_jobs' }, 0] },
                             then: 0,
-                            else: { $arrayElemAt: ['$finished.count', 0] }
+                            else: { $arrayElemAt: ['$finished_jobs.count', 0] }
                         }
                     },
                     delayed_jobs: {
                         $cond: {
                             if: { $eq: [{ $size: '$delayed_jobs' }, 0] },
                             then: 0,
-                            else: { $arrayElemAt: ['$delayed.count', 0] }
-                        }
-                    }
-                })
-        )[0];
-        const statsWorkers = (
-            await mood.minionWorkers
-                .aggregate<MinionStats>()
-                .facet({
-                    workers: [{ $count: 'count' }],
-                    active_workers: [
-                        { $match: { state: 'active' } },
-                        { $count: 'count' }
-                    ]
-                })
-                .project({
-                    workers: {
-                        $cond: {
-                            if: { $eq: [{ $size: '$workers' }, 0] },
-                            then: 0,
-                            else: { $arrayElemAt: ['$workers.count', 0] }
+                            else: { $arrayElemAt: ['$delayed_jobs.count', 0] }
                         }
                     },
                     active_workers: {
                         $cond: {
                             if: { $eq: [{ $size: '$active_workers' }, 0] },
                             then: 0,
-                            else: { $arrayElemAt: ['$active_jobs.workers', 0] }
+                            else: { $arrayElemAt: ['$active_workers.count', 0] }
                         }
                     }
                 })
         )[0];
 
+        const statsWorkers = {
+            workers: await mood.minionWorkers.countDocuments({}),
+            inactive_workers: -1
+        };
+
         // TODO: enqueued_jobs
-        // TODO: uptime
         //     (SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM minion_jobs_id_seq) AS enqueued_jobs,
         //     EXTRACT(EPOCH FROM NOW() - PG_POSTMASTER_START_TIME()) AS uptime
+        const enqueued_jobs =
+            statsJobs.active_jobs +
+            statsJobs.failed_jobs +
+            statsJobs.finished_jobs +
+            statsJobs.inactive_jobs;
+
+        // if user doesn't have admin authorization. Server uptime missing
+        let uptime = -1;
+        try {
+            const ss = await moo.connection.db.command({
+                iserverStatus: 1,
+                asserts: 0,
+                connections: 0,
+                repl: 0,
+                metrics: 0,
+                locks: 0,
+                electionMetrics: 0,
+                extra_info: 0,
+                flowControl: 0,
+                freeMonitoring: 0,
+                globalLock: 0,
+                logicalSessionRecordCache: 0,
+                network: 0,
+                indexBulkBuilder: 0,
+                opLatencies: 0,
+                opReadConcernCounters: 0,
+                opcounters: 0,
+                opcountersRepl: 0,
+                oplogTruncation: 0,
+                scramCache: 0,
+                storageEngine: 0,
+                tcmalloc: 0,
+                trafficRecording: 0,
+                transactions: 0,
+                transportSecurity: 0,
+                twoPhaseCommitCoordinator: 0,
+                wiredTiger: 0
+            });
+            uptime = ss.uptime;
+        } catch {}
 
         // I don't know why here required to works toLocaleString()
         const statsLocks = await mood.minionLocks.countDocuments({
@@ -831,9 +861,15 @@ export class MongooseBackend {
         });
 
         statsWorkers.inactive_workers =
-            statsWorkers.workers - statsWorkers.active_workers;
+            statsWorkers.workers - statsJobs.active_workers;
 
-        return { ...statsJobs, ...statsWorkers, active_locks: statsLocks };
+        return {
+            ...statsJobs,
+            ...statsWorkers,
+            active_locks: statsLocks,
+            uptime: uptime,
+            enqueued_jobs: enqueued_jobs
+        };
     }
 
     /**
