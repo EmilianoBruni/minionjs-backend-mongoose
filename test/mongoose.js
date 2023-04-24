@@ -531,5 +531,29 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
+    await t.test('History', async t => {
+        await minion.enqueue('fail');
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.ok(await job.fail());
+        await worker.unregister();
+        const history = await minion.history();
+        t.equal(history.daily.length, 24);
+        t.equal(
+            history.daily[23].finished_jobs + history.daily[22].finished_jobs,
+            3
+        );
+        t.equal(
+            history.daily[23].failed_jobs + history.daily[22].failed_jobs,
+            1
+        );
+        t.equal(history.daily[0].finished_jobs, 0);
+        t.equal(history.daily[0].failed_jobs, 0);
+        t.ok(history.daily[0].epoch);
+        t.ok(history.daily[1].epoch);
+        t.ok(history.daily[12].epoch);
+        t.ok(history.daily[23].epoch);
+    });
+
     await minion.end();
 });
