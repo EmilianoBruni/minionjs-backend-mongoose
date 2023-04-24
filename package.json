@@ -60,6 +60,7 @@
   "dependencies": {
     "@minionjs/core": "^0.3.7",
     "c8": "^7.13.0",
+    "dayjs": "^1.11.7",
     "moment": "^2.29.4",
     "mongoose": "^7.0.3"
   }
