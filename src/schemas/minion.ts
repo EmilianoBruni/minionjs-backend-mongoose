@@ -37,7 +37,8 @@ export const minionJobsSchema: MongooseSchema = {
     alias: 'minionJobs',
     options: {
         timestamps: false,
-        versionKey: false
+        versionKey: false,
+        minimize: false // if true: notes: {} will be not saved
     },
     schema: {
         _id: { type: Schema.Types.ObjectId, auto: true },
@@ -47,13 +48,13 @@ export const minionJobsSchema: MongooseSchema = {
         delayed: { type: Date, required: true },
         expires: { type: Date },
         finished: Date,
-        notes: { type: Schema.Types.Mixed },
+        notes: { type: {}, default: {} },
         parents: { type: [Schema.Types.ObjectId] },
         priority: { type: Number, require: true },
         queue: { type: String, default: 'default' },
         result: Schema.Types.Mixed,
         retried: Date,
-        retries: { type: Number, default: 1 },
+        retries: { type: Number, default: 0 },
         started: Date,
         state: {
             type: String,
