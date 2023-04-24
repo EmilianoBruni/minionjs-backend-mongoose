@@ -26,6 +26,7 @@ import {
     IMinionLocks
 } from './schemas/minion.js';
 import Path from '@mojojs/path';
+import dayjs from 'dayjs';
 import moment from 'moment';
 import { ObjectId, Types, Mongoose } from 'mongoose';
 
@@ -166,7 +167,7 @@ export class MongooseBackend {
             // if this works, then I'm under replicaset
             this.mongoose.models.minionJobs
                 .watch()
-                .on('change', t => {})
+                .on('change', () => {})
                 .close();
             this._isReplicaSet = true;
         } catch {
@@ -211,7 +212,6 @@ export class MongooseBackend {
                 resolve => (timer = setTimeout(resolve, wait))
             );
             const doc = await Promise.race([newJob.next(), timeoutPromise]);
-            //console.log('PromiceRace: ' + JSON.stringify(doc));
             clearTimeout(timer);
         } else {
             // TODO: standalone
@@ -279,6 +279,96 @@ export class MongooseBackend {
         result?: any
     ): Promise<boolean> {
         return await this._update('finished', id, retries, result);
+    }
+
+    /**
+     * Get history information for job queue.
+     */
+    async history(): Promise<MinionHistory> {
+        const mJ = this.mongoose.models.minionJobs;
+
+        const now = dayjs();
+
+        // we build an array with xx:00 for every hour from now to 23 hours ago
+        let loop = dayjs(now)
+            .minute(0)
+            .second(0)
+            .millisecond(0)
+            .subtract(23, 'hours');
+        const start = loop.clone();
+
+        const boundaries = [];
+        while (loop < now) {
+            boundaries.push(loop.toDate());
+            loop = loop.add(1, 'hours');
+        }
+
+        // add last range for last hour
+        boundaries[24] = now.add(1, 'minutes').toDate();
+
+        /** For all jobs in last 23 hours we bucket it for range
+         *  [x, x+1 ] with _id: x
+        */
+        const result = mJ.aggregate<DailyHistory>();
+        result.match({ finished: { $gt: start.toDate() } });
+        result.append({
+            $bucket: {
+                groupBy: '$finished',
+                boundaries: boundaries,
+                default: null,
+                output: {
+                    finished_jobs: {
+                        $sum: {
+                            $cond: {
+                                if: { $eq: ['$state', 'finished'] },
+                                then: 1,
+                                else: 0
+                            }
+                        }
+                    },
+                    failed_jobs: {
+                        $sum: {
+                            $cond: {
+                                if: { $eq: ['$state', 'failed'] },
+                                then: 1,
+                                else: 0
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        result.project({
+            finished_jobs: 1,
+            failed_jobs: 1,
+            epoch: { $divide: [{ $toDecimal: '$_id' }, 1000] },
+            _id: 0
+        });
+        result.sort({ _id: 1 });
+
+        const results = await result.exec();
+
+        // we fill empty range [x,x+1]
+        const history: DailyHistory[] = [];
+        const emptyHistory: DailyHistory = {
+            failed_jobs: 0,
+            finished_jobs: 0,
+            epoch: -1
+        };
+
+        boundaries.forEach(dta => {
+            const epoch = dta.valueOf() / 1000;
+            const historyItem = results.find(v => v.epoch == epoch);
+            history.push(
+                historyItem === undefined
+                    ? { ...emptyHistory, epoch: epoch }
+                    : historyItem
+            );
+        });
+
+        // delete last which is out of bucket
+        history.pop();
+        return { daily: history };
     }
 
     /**
@@ -719,7 +809,6 @@ export class MongooseBackend {
         const moo = this.mongoose;
         const mood = moo.models;
         const now = moment().toDate();
-        console.log(now);
         const statsJobs = (
             await mood.minionJobs
                 .aggregate<MinionStats>()
