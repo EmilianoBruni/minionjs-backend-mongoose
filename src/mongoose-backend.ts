@@ -252,7 +252,6 @@ export class MongooseBackend {
         });
         if (options.expire !== undefined)
             job.expires = moment().add(options.expire, 'milliseconds').toDate();
-
         await job.save();
 
         return job._id?.toString();
@@ -308,7 +307,7 @@ export class MongooseBackend {
 
         /** For all jobs in last 23 hours we bucket it for range
          *  [x, x+1 ] with _id: x
-        */
+         */
         const result = mJ.aggregate<DailyHistory>();
         result.match({ finished: { $gt: start.toDate() } });
         result.append({
@@ -387,6 +386,24 @@ export class MongooseBackend {
                     $in: options.ids.map(this._oid.bind(this))
                 }
             });
+        if (options.queues !== undefined)
+            results.match({
+                queue: {
+                    $in: options.queues
+                }
+            });
+        if (options.states !== undefined)
+            results.match({
+                state: {
+                    $in: options.states
+                }
+            });
+        if (options.tasks !== undefined)
+            results.match({
+                task: {
+                    $in: options.tasks
+                }
+            });
 
         if (options.before !== undefined)
             results.match({
@@ -397,7 +414,7 @@ export class MongooseBackend {
         if (options.notes !== undefined)
             options.notes.forEach(note => {
                 results.match({
-                    'notes.$`note`': { $exists: true }
+                    [`notes.${note}`]: { $exists: true }
                 });
             });
         results.match({
@@ -411,10 +428,12 @@ export class MongooseBackend {
         const facetPipeLine = mJ.aggregate();
         facetPipeLine.addFields({ id: { $toString: '$_id' } });
         facetPipeLine.sort({ _id: -1 }).skip(offset).limit(limit);
+
+        // TODO: check if this is correct
         facetPipeLine.lookup({
             from: 'minion_jobs',
-            localField: 'parents',
-            foreignField: 'children',
+            localField: '_id',
+            foreignField: 'parents',
             as: 'children'
         });
 
@@ -436,7 +455,6 @@ export class MongooseBackend {
         });
 
         const jobs = (await results.exec())[0];
-
         return jobs;
     }
 
