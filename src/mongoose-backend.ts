@@ -1219,8 +1219,7 @@ export class MongooseBackend {
                 },
                 { finished: Date.now(), result: result, state: state }
             );
-
-        if (job === undefined) return false;
+        if (job === null) return false;
         const attempts = job?.attempts ?? 0;
         return state === 'failed'
             ? this._autoRetryJob(id, retries, attempts)
