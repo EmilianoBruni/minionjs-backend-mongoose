@@ -2,6 +2,7 @@ import os from 'node:os';
 import { MongooseBackend } from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mojo, { util } from '@mojojs/core';
+import dayjs from 'dayjs';
 import moment from 'moment';
 import mongoose from 'mongoose';
 import t from 'tap';
@@ -828,6 +829,99 @@ t.test('Mongoose backend', skip, async t => {
         const job8 = await worker.dequeue(0, { minPriority: -10 });
         t.equal((await job8.info()).priority, -2);
         t.ok(await job8.finish());
+        await worker.unregister();
+    });
+
+    await t.test('Delayed jobs', async t => {
+        const id = await minion.enqueue('add', [2, 1], { delay: 100000 });
+        t.equal((await minion.stats()).delayed_jobs, 1);
+        const worker = await minion.worker().register();
+        t.notOk(await worker.dequeue());
+        const job = await minion.job(id);
+        const info = await job.info();
+        t.ok(info.delayed > info.created);
+        await minion.backend.mongoose.models.minionJobs.updateOne(
+            {
+                _id: minion.backend._oid(id)
+            },
+            { delayed: dayjs().subtract(1, 'days').toDate() }
+        );
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id);
+        t.same((await job2.info()).delayed instanceof Date, true);
+        t.ok(await job2.finish());
+        t.ok(await job2.retry());
+        const job3 = await minion.job(id);
+        const info2 = await job3.info();
+        t.ok(info2.delayed <= info2.retried);
+        t.ok(await job3.remove());
+        t.notOk(await job3.retry());
+
+        const id2 = await minion.enqueue('add', [6, 9]);
+        const job4 = await worker.dequeue();
+        t.equal(job4.id, id2);
+        const info3 = await job4.info();
+        t.ok(info3.delayed <= info3.created);
+        t.ok(await job4.fail());
+        t.ok(await job4.retry({ delay: 100000 }));
+        const info4 = await job4.info();
+        t.equal(info4.retries, 1);
+        t.ok(info4.delayed > info4.retried);
+        t.ok(await minion.job(id2).then(job => job.remove()));
+        await worker.unregister();
+    });
+
+    await t.test('Queues', async t => {
+        const id = await minion.enqueue('add', [100, 1]);
+        const worker = await minion.worker().register();
+        t.notOk(await worker.dequeue(0, { queues: ['test1'] }));
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.equal((await job.info()).queue, 'default');
+        t.ok(await job.finish());
+
+        const id2 = await minion.enqueue('add', [100, 3], { queue: 'test1' });
+        t.notOk(await worker.dequeue());
+        const job2 = await worker.dequeue(0, { queues: ['test1'] });
+        t.equal(job2.id, id2);
+        t.equal((await job2.info()).queue, 'test1');
+        t.ok(await job2.finish());
+        t.ok(await job2.retry({ queue: 'test2' }));
+        const job3 = await worker.dequeue(0, { queues: ['default', 'test2'] });
+        t.equal(job3.id, id2);
+        t.equal((await job3.info()).queue, 'test2');
+        t.ok(await job3.finish());
+        await worker.unregister();
+    });
+
+    await t.test('Failed jobs', async t => {
+        const id = await minion.enqueue('add', [5, 6]);
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.notOk((await job.info()).result);
+        t.ok(await job.fail());
+        t.notOk(await job.finish());
+        t.equal((await job.info()).state, 'failed');
+        t.equal((await job.info()).result, 'Unknown error');
+
+        const id2 = await minion.enqueue('add', [6, 7]);
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id2);
+        t.ok(await job2.fail('Something bad happened'));
+        t.equal((await job2.info()).state, 'failed');
+        t.equal((await job2.info()).result, 'Something bad happened');
+
+        const id3 = await minion.enqueue('fail');
+        const job3 = await worker.dequeue();
+        t.equal(job3.id, id3);
+        await job3.perform();
+        t.equal((await job3.info()).state, 'failed');
+        t.match((await job3.info()).result, {
+            name: 'Error',
+            message: /Intentional failure/,
+            stack: /Intentional failure/
+        });
         await worker.unregister();
     });
 
