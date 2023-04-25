@@ -202,7 +202,7 @@ export class MongooseBackend {
         options: DequeueOptions
     ): Promise<DequeuedJob | null> {
         const job = await this._try(id, options);
-        if (job !== undefined) return job;
+        if (job !== null) return job;
 
         if (this.isReplicaSet()) {
             let timer;
@@ -1201,7 +1201,7 @@ export class MongooseBackend {
             job[0].id = job[0].id?.toString();
         }
         //   UPDATE minion_jobs SET started = NOW(), state = 'active', worker = ${id}
-        return job[0];
+        return job[0] ?? null;
     }
 
     async _update(
