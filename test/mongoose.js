@@ -693,5 +693,42 @@ t.test('Mongoose backend', skip, async t => {
         await minion.job(id2).then(job => job.remove());
     });
 
+    await t.test('Enqueue, dequeue and perform', async t => {
+        t.notOk(await minion.job(12345));
+        const id = await minion.enqueue('add', [2, 2]);
+        const info = await minion.job(id).then(job => job.info());
+        t.same(info.args, [2, 2]);
+        t.equal(info.priority, 0);
+        t.equal(info.state, 'inactive');
+
+        const worker = minion.worker();
+        t.same(await worker.dequeue(), null);
+        await worker.register();
+        const job = await worker.dequeue();
+        t.same((await worker.info()).jobs, [id]);
+        t.same((await job.info()).created instanceof Date, true);
+        t.same((await job.info()).started instanceof Date, true);
+        t.same((await job.info()).time instanceof Date, true);
+        t.equal((await job.info()).state, 'active');
+        t.same(job.args, [2, 2]);
+        t.equal(job.task, 'add');
+        t.equal(job.retries, 0);
+        console.log(await job.info());
+        t.equal((await job.info()).worker.toString(), worker.id);
+        t.notOk((await job.info()).finished);
+
+        await job.perform();
+        t.same((await worker.info()).jobs, []);
+        t.same((await job.info()).finished instanceof Date, true);
+        t.same((await job.info()).result, { added: 4 });
+        t.equal((await job.info()).state, 'finished');
+        await worker.unregister();
+
+        const job2 = await minion.job(job.id);
+        t.same(job2.task, 'add');
+        t.same(job2.args, [2, 2]);
+        t.equal((await job2.info()).state, 'finished');
+    });
+
     await minion.end();
 });
