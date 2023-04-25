@@ -427,6 +427,7 @@ export class MongooseBackend {
 
         const facetPipeLine = mJ.aggregate();
         facetPipeLine.addFields({ id: { $toString: '$_id' } });
+        facetPipeLine.addFields({ time: new Date() });
         facetPipeLine.sort({ _id: -1 }).skip(offset).limit(limit);
 
         // TODO: check if this is correct
@@ -535,13 +536,13 @@ export class MongooseBackend {
                     $match: {
                         $expr: {
                             $and: [
-                                { state: 'active' },
-                                { $eq: ['$_id', '$$worker_id'] }
+                                { $eq: ['$state', 'active'] },
+                                { $eq: ['$worker', '$$worker_id'] }
                             ]
                         }
                     }
                 },
-                { $project: { _id: 1 } }
+                { $project: { _id: 0, id: { $toString: '$_id' } } }
             ],
             as: 'jobs'
         });
@@ -564,6 +565,16 @@ export class MongooseBackend {
         });
 
         const workers = (await results.exec())[0];
+
+        // convert worker.jobs from [ {id: ObjectIdString}] to [ObjectIdString]
+        workers.workers.forEach(worker => {
+            const jobsArray: number[] = [];
+            worker.jobs.forEach(job => {
+                /* @ts-ignore:enable */
+                jobsArray.push(job.id);
+            });
+            worker.jobs = jobsArray;
+        });
 
         return workers;
     }
