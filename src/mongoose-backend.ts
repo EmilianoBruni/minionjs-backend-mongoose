@@ -27,7 +27,6 @@ import {
 } from './schemas/minion.js';
 import Path from '@mojojs/path';
 import dayjs from 'dayjs';
-import moment from 'moment';
 import { ObjectId, Types, Mongoose } from 'mongoose';
 
 export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
@@ -240,7 +239,7 @@ export class MongooseBackend {
         const job = new mJobs<IMinionJobs>({
             args: args,
             attempts: options.attempts ?? 1,
-            delayed: moment()
+            delayed: dayjs()
                 .add(options.delay ?? 0, 'milliseconds')
                 .toDate(),
             lax: options.lax ?? false,
@@ -251,7 +250,7 @@ export class MongooseBackend {
             task: task
         });
         if (options.expire !== undefined)
-            job.expires = moment().add(options.expire, 'milliseconds').toDate();
+            job.expires = dayjs().add(options.expire, 'milliseconds').toDate();
         await job.save();
 
         return job._id?.toString();
@@ -420,7 +419,7 @@ export class MongooseBackend {
         results.match({
             $or: [
                 { state: { $ne: 'inactive' } },
-                { expires: { $gt: moment().toDate() } },
+                { expires: { $gt: dayjs().toDate() } },
                 { expires: { $exists: false } }
             ]
         });
@@ -469,7 +468,7 @@ export class MongooseBackend {
     ): Promise<LockList> {
         const mL = this.mongoose.models.minionLocks;
         const results = mL.aggregate<LockList>();
-        results.match({ expires: { $gt: moment().toDate() } });
+        results.match({ expires: { $gt: dayjs().toDate() } });
         if (options.names !== undefined)
             results.match({
                 name: { $in: options.names ?? [] }
@@ -589,7 +588,7 @@ export class MongooseBackend {
         options: LockOptions = {}
     ): Promise<boolean> {
         const limit = options.limit ?? 1;
-        const now = moment();
+        const now = dayjs();
 
         const mL = this.mongoose.models.minionLocks;
 
@@ -647,7 +646,7 @@ export class MongooseBackend {
             {
                 host: this._hostname,
                 pid: process.pid,
-                notified: moment().toDate(),
+                notified: dayjs().toDate(),
                 status: status
             },
             {
@@ -684,7 +683,7 @@ export class MongooseBackend {
         // Workers without heartbeat
         await mWorkers.deleteMany({
             notified: {
-                $lt: moment()
+                $lt: dayjs()
                     .subtract(minion.missingAfter, 'milliseconds')
                     .toDate()
             }
@@ -713,7 +712,7 @@ export class MongooseBackend {
             .match({
                 state: 'finished',
                 finished: {
-                    $lte: moment()
+                    $lte: dayjs()
                         .subtract(minion.removeAfter, 'milliseconds')
                         .toDate()
                 }
@@ -750,7 +749,7 @@ export class MongooseBackend {
         //   )
         await mJobs.deleteMany({
             state: 'inactive',
-            expires: { $lte: moment().toDate() }
+            expires: { $lte: dayjs().toDate() }
         });
 
         // Jobs with missing worker (can be retried)
@@ -770,7 +769,7 @@ export class MongooseBackend {
             {
                 state: 'inactive',
                 delayed: {
-                    $lt: moment()
+                    $lt: dayjs()
                         .subtract(minion.stuckAfter, 'milliseconds')
                         .toDate()
                 }
@@ -807,9 +806,7 @@ export class MongooseBackend {
         const filter = { _id: this._oid(id), retries: retries };
         const now = dayjs();
         const update: keyable = {
-            delayed: now
-                .add(options.delay ?? 0, 'milliseconds')
-                .toDate(),
+            delayed: now.add(options.delay ?? 0, 'milliseconds').toDate(),
             retried: now.toDate(),
             $inc: { retries: 1 },
             state: 'inactive'
@@ -838,7 +835,7 @@ export class MongooseBackend {
     async stats(): Promise<MinionStats> {
         const moo = this.mongoose;
         const mood = moo.models;
-        const now = moment().toDate();
+        const now = dayjs().toDate();
         const statsJobs = (
             await mood.minionJobs
                 .aggregate<MinionStats>()
@@ -999,7 +996,7 @@ export class MongooseBackend {
         const result = await mL
             .aggregate()
             .match({
-                expires: { $gt: moment().toDate() },
+                expires: { $gt: dayjs().toDate() },
                 name: name
             })
             .sort({ expires: 1 })
@@ -1125,7 +1122,7 @@ export class MongooseBackend {
         const queues = options.queues ?? ['default'];
         const tasks = Object.keys(this.minion.tasks);
 
-        const now = moment().toDate();
+        const now = dayjs().toDate();
 
         //     SELECT id FROM minion_jobs AS j
         //     WHERE delayed <= NOW() AND id = COALESCE(${jobId}, id)

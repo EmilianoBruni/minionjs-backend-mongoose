@@ -3,7 +3,6 @@ import { MongooseBackend } from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mojo, { util } from '@mojojs/core';
 import dayjs from 'dayjs';
-import moment from 'moment';
 import mongoose from 'mongoose';
 import t from 'tap';
 
@@ -140,7 +139,7 @@ t.test('Mongoose backend', skip, async t => {
         t.ok(await worker2.info());
         await minion.backend.mongoose.models.minionWorkers.updateOne(
             { _id: minion.backend._oid(workerId) },
-            { notified: moment().subtract(missingAfter, 'milliseconds') }
+            { notified: dayjs().subtract(missingAfter, 'milliseconds') }
         );
 
         await minion.repair();
@@ -202,7 +201,7 @@ t.test('Mongoose backend', skip, async t => {
             await moj.updateOne({ _id: minion.backend._oid(i) }, [
                 {
                     $set: {
-                        finished: moment(finished)
+                        finished: dayjs(finished)
                             .subtract(minion.removeAfter + 1, 'milliseconds')
                             .toDate()
                     }
@@ -233,7 +232,7 @@ t.test('Mongoose backend', skip, async t => {
             await moj.updateOne({ _id: minion.backend._oid(i) }, [
                 {
                     $set: {
-                        delayed: moment()
+                        delayed: dayjs()
                             .subtract(stuck, 'milliseconds')
                             .toDate()
                     }
@@ -432,7 +431,7 @@ t.test('Mongoose backend', skip, async t => {
             {
                 name: 'yada'
             },
-            { expires: moment().subtract(1, 'seconds') }
+            { expires: dayjs().subtract(1, 'seconds') }
         );
         await minion.unlock('test');
         t.equal((await minion.stats()).active_locks, 0);
