@@ -1027,5 +1027,77 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
+    await t.test('Multiple attempts during maintenance', async t => {
+        const id = await minion.enqueue('fail', [], { attempts: 2 });
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.equal(job.retries, 0);
+        t.equal((await job.info()).attempts, 2);
+        t.equal((await job.info()).state, 'active');
+        await worker.unregister();
+        await minion.repair();
+        t.equal((await job.info()).state, 'inactive');
+        t.match((await job.info()).result, 'Worker went away');
+        t.ok((await job.info()).retried < (await job.info()).delayed);
+
+        const back = minion.backend;
+        const mJ = minion.backend.mongoose.models.minionJobs;
+
+        await mJ.updateOne(
+            { _id: back._oid(id) },
+            { delayed: dayjs().toDate() }
+        );
+        const worker2 = await minion.worker().register();
+        const job2 = await worker2.dequeue();
+        t.equal(job2.id, id);
+        t.equal(job2.retries, 1);
+        await worker2.unregister();
+        await minion.repair();
+        t.equal((await job2.info()).state, 'failed');
+        t.match((await job2.info()).result, 'Worker went away');
+    });
+
+    await t.test('A job needs to be dequeued again after a retry', async t => {
+        minion.addTask('restart', async () => {
+            return;
+        });
+        const id = await minion.enqueue('restart');
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.ok(await job.finish());
+        t.equal((await job.info()).state, 'finished');
+        t.ok(await job.retry());
+        t.equal((await job.info()).state, 'inactive');
+        const job2 = await worker.dequeue();
+        t.equal((await job2.info()).state, 'active');
+        t.notOk(await job.finish());
+        t.equal((await job2.info()).state, 'active');
+        t.equal(job2.id, id);
+        t.ok(await job2.finish());
+        t.notOk(await job.retry());
+        t.equal((await job2.info()).state, 'finished');
+        await worker.unregister();
+    });
+
+    await t.test('Perform jobs concurrently', async t => {
+        const id = await minion.enqueue('add', [10, 11]);
+        const id2 = await minion.enqueue('add', [12, 13]);
+        const id3 = await minion.enqueue('test');
+        const id4 = await minion.enqueue('fail');
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        const job2 = await worker.dequeue();
+        const job3 = await worker.dequeue();
+        const job4 = await worker.dequeue();
+        await Promise.all([job.perform(), job2.perform(), job3.perform(), job4.perform()]);
+        t.equal((await minion.job(id).then(job => job.info())).state, 'finished');
+        t.equal((await minion.job(id2).then(job => job.info())).state, 'finished');
+        t.equal((await minion.job(id3).then(job => job.info())).state, 'finished');
+        t.equal((await minion.job(id4).then(job => job.info())).state, 'failed');
+        await worker.unregister();
+      });
+
     await minion.end();
 });
