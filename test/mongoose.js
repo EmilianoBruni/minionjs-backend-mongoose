@@ -925,5 +925,108 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
+    await t.test('Nested data structures', async t => {
+        minion.addTask('nested', async (job, object, array) => {
+            await job.note({ bar: { baz: [1, 2, 3] } });
+            await job.note({ baz: 'yada' });
+            await job.finish([{ 23: object.first[0].second + array[0][0] }]);
+        });
+        await minion.enqueue(
+            'nested',
+            [{ first: [{ second: 'test' }] }, [[3]]],
+            { notes: { foo: [4, 5, 6] } }
+        );
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        await job.perform();
+        t.equal((await job.info()).state, 'finished');
+        t.ok(await job.note({ yada: ['works'] }));
+        t.notOk(await minion.backend.note(-1, { yada: ['failed'] }));
+        t.same((await job.info()).notes, {
+            foo: [4, 5, 6],
+            bar: { baz: [1, 2, 3] },
+            baz: 'yada',
+            yada: ['works']
+        });
+        t.same((await job.info()).result, [{ 23: 'test3' }]);
+        t.ok(await job.note({ yada: null, bar: null }));
+        t.same((await job.info()).notes, { foo: [4, 5, 6], baz: 'yada' });
+        await worker.unregister();
+    });
+
+    await t.test('Multiple attempts while processing', async t => {
+        t.equal(minion.backoff(0), 15);
+        t.equal(minion.backoff(1), 16);
+        t.equal(minion.backoff(2), 31);
+        t.equal(minion.backoff(3), 96);
+        t.equal(minion.backoff(4), 271);
+        t.equal(minion.backoff(5), 640);
+        t.equal(minion.backoff(25), 390640);
+
+        const id = await minion.enqueue('fail', [], { attempts: 3 });
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.equal(job.retries, 0);
+        const info = await job.info();
+        t.equal(info.attempts, 3);
+        t.equal(info.state, 'active');
+        await job.perform();
+        const info2 = await job.info();
+        t.equal(info2.attempts, 2);
+        t.equal(info2.state, 'inactive');
+        t.match(info2.result, { message: /Intentional failure/ });
+        t.ok(info2.retried < info2.delayed);
+
+        const back = minion.backend;
+        const mJ = minion.backend.mongoose.models.minionJobs;
+
+        await mJ.updateOne(
+            { _id: back._oid(id) },
+            { delayed: dayjs().toDate() }
+        );
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id);
+        t.equal(job2.retries, 1);
+        const info3 = await job2.info();
+        t.equal(info3.attempts, 2);
+        t.equal(info3.state, 'active');
+        await job2.perform();
+        const info4 = await job2.info();
+        t.equal(info4.attempts, 1);
+        t.equal(info4.state, 'inactive');
+
+        await mJ.updateOne(
+            { _id: back._oid(id) },
+            { delayed: dayjs().toDate() }
+        );
+        const job3 = await worker.dequeue();
+        t.equal(job3.id, id);
+        t.equal(job3.retries, 2);
+        const info5 = await job3.info();
+        t.equal(info5.attempts, 1);
+        t.equal(info5.state, 'active');
+        await job3.perform();
+        const info6 = await job3.info();
+        t.equal(info6.attempts, 1);
+        t.equal(info6.state, 'failed');
+        t.match(info6.result, { message: /Intentional failure/ });
+
+        t.ok(await job3.retry({ attempts: 2 }));
+        const job4 = await worker.dequeue();
+        t.equal(job4.id, id);
+        await job4.perform();
+        t.equal((await job4.info()).state, 'inactive');
+        await mJ.updateOne(
+            { _id: back._oid(id) },
+            { delayed: dayjs().toDate() }
+        );
+        const job5 = await worker.dequeue();
+        t.equal(job5.id, id);
+        await job5.perform();
+        t.equal((await job5.info()).state, 'failed');
+        await worker.unregister();
+    });
+
     await minion.end();
 });
