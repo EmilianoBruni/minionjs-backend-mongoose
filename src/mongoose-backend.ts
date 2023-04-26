@@ -805,21 +805,22 @@ export class MongooseBackend {
     ): Promise<boolean> {
         type keyable = { [key: string]: any };
         const filter = { _id: this._oid(id), retries: retries };
+        const now = dayjs();
         const update: keyable = {
-            delayed: moment()
+            delayed: now
                 .add(options.delay ?? 0, 'milliseconds')
                 .toDate(),
-            retried: Date.now(),
+            retried: now.toDate(),
             $inc: { retries: 1 },
             state: 'inactive'
         };
 
         if ('expire' in options)
-            update.expires = moment()
-                .add(options.expire, 'milliseconds')
+            update.expires = now
+                .add(options.expire ?? 0, 'milliseconds')
                 .toDate();
         /* @ts-ignore:enable */
-        ['lax', 'parents', 'priority', 'queue'].forEach(k => {
+        ['lax', 'parents', 'priority', 'queue', 'attempts'].forEach(k => {
             /* @ts-ignore:enable */
             if (k in options) update[k] = options[k];
         });
