@@ -455,6 +455,29 @@ export class MongooseBackend {
         });
 
         const jobs = (await results.exec())[0];
+
+        if (jobs.jobs.length > 0) {
+            jobs.jobs.forEach(job => {
+                // convert parents as an array of id
+                if (job.parents.length > 0) {
+                    const parents: number[] = [];
+                    job.parents.forEach(parent => {
+                        /* @ts-ignore:enable */
+                        parents.push(parent._id.toString());
+                    });
+                    job.parents = parents;
+                }
+                // children is an array of id
+                if (job.children.length > 0) {
+                    const childrens: number[] = [];
+                    job.children.forEach(children => {
+                        /* @ts-ignore:enable */
+                        childrens.push(children._id.toString());
+                    });
+                    job.children = childrens;
+                }
+            });
+        }
         return jobs;
     }
 
