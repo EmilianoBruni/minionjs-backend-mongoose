@@ -1091,13 +1091,96 @@ t.test('Mongoose backend', skip, async t => {
         const job2 = await worker.dequeue();
         const job3 = await worker.dequeue();
         const job4 = await worker.dequeue();
-        await Promise.all([job.perform(), job2.perform(), job3.perform(), job4.perform()]);
-        t.equal((await minion.job(id).then(job => job.info())).state, 'finished');
-        t.equal((await minion.job(id2).then(job => job.info())).state, 'finished');
-        t.equal((await minion.job(id3).then(job => job.info())).state, 'finished');
-        t.equal((await minion.job(id4).then(job => job.info())).state, 'failed');
+        await Promise.all([
+            job.perform(),
+            job2.perform(),
+            job3.perform(),
+            job4.perform()
+        ]);
+        t.equal(
+            (await minion.job(id).then(job => job.info())).state,
+            'finished'
+        );
+        t.equal(
+            (await minion.job(id2).then(job => job.info())).state,
+            'finished'
+        );
+        t.equal(
+            (await minion.job(id3).then(job => job.info())).state,
+            'finished'
+        );
+        t.equal(
+            (await minion.job(id4).then(job => job.info())).state,
+            'failed'
+        );
         await worker.unregister();
-      });
+    });
+
+    await t.test('Job dependencies', async t => {
+        minion.removeAfter = 0;
+        await minion.repair();
+        t.equal((await minion.stats()).finished_jobs, 0);
+        const worker = await minion.worker().register();
+        const id = await minion.enqueue('test');
+        const id2 = await minion.enqueue('test');
+        const id3 = await minion.enqueue('test', [], { parents: [id, id2] });
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.same((await job.info()).children, [id3]);
+        t.same((await job.info()).parents, []);
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id2);
+        t.same((await job2.info()).children, [id3]);
+        t.same((await job2.info()).parents, []);
+        t.notOk(await worker.dequeue());
+        t.ok(await job.finish());
+        t.notOk(await worker.dequeue());
+        t.ok(await job2.fail());
+        t.notOk(await worker.dequeue());
+        t.ok(await job2.retry());
+        const job3 = await worker.dequeue();
+        t.equal(job3.id, id2);
+        t.ok(await job3.finish());
+        const job4 = await worker.dequeue();
+        t.equal(job4.id, id3);
+        t.same((await job4.info()).children, []);
+        t.same((await job4.info()).parents, [id, id2]);
+        t.equal((await minion.stats()).finished_jobs, 2);
+        await minion.repair();
+        t.equal((await minion.stats()).finished_jobs, 2);
+        t.ok(await job4.finish());
+        t.equal((await minion.stats()).finished_jobs, 3);
+        await minion.repair();
+        t.equal((await minion.stats()).finished_jobs, 0);
+
+        minion.removeAfter = 172800000;
+        const id4 = await minion.enqueue('test', [], { parents: [id3] });
+        const job5 = await worker.dequeue();
+        t.equal(job5.id, id4);
+        t.ok(await job5.finish());
+        const id5 = await minion.enqueue('test', [], { parents: [id4] });
+        const job6 = await worker.dequeue();
+        t.equal(job6.id, id5);
+        t.same((await job6.info()).parents, [id4]);
+        t.ok(await job6.retry({ parents: [id3, id4] }));
+        const job7 = await worker.dequeue();
+        t.same((await job7.info()).parents, [id3, id4]);
+        t.ok(await job7.finish());
+
+        const id6 = await minion.enqueue('test');
+        const id7 = await minion.enqueue('test');
+        const id8 = await minion.enqueue('test', [], { parents: [id6, id7] });
+        const child = await minion.job(id8);
+        const parents = await child.parents();
+        t.equal(parents.length, 2);
+        t.equal(parents[0].id, id6);
+        t.equal(parents[1].id, id7);
+        await parents[0].remove();
+        await parents[1].remove();
+        t.equal((await child.parents()).length, 0);
+        t.ok(await child.remove());
+        await worker.unregister();
+    });
 
     await minion.end();
 });
