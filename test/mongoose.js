@@ -1182,5 +1182,226 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
+    await t.test('Job dependencies (lax)', async t => {
+        const worker = await minion.worker().register();
+        const id = await minion.enqueue('test');
+        const id2 = await minion.enqueue('test');
+        const id3 = await minion.enqueue('test', [], {
+            lax: true,
+            parents: [id, id2]
+        });
+        const job = await worker.dequeue();
+        t.equal(job.id, id);
+        t.same((await job.info()).children, [id3]);
+        t.same((await job.info()).parents, []);
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id2);
+        t.same((await job2.info()).children, [id3]);
+        t.same((await job2.info()).parents, []);
+        t.notOk(await worker.dequeue());
+        t.ok(await job.finish());
+        t.notOk(await worker.dequeue());
+        t.ok(await job2.fail());
+        const job3 = await worker.dequeue();
+        t.equal(job3.id, id3);
+        t.same((await job3.info()).children, []);
+        t.same((await job3.info()).parents, [id, id2]);
+        t.ok(await job3.finish());
+
+        const id4 = await minion.enqueue('test');
+        const id5 = await minion.enqueue('test', [], { parents: [id4] });
+        const job4 = await worker.dequeue();
+        t.equal(job4.id, id4);
+        t.notOk(await worker.dequeue());
+        t.ok(await job4.fail());
+        t.notOk(await worker.dequeue());
+        t.ok(await minion.job(id5).then(job => job.retry({ lax: true })));
+        const job5 = await worker.dequeue();
+        t.equal(job5.id, id5);
+        t.same((await job5.info()).children, []);
+        t.same((await job5.info()).parents, [id4]);
+        t.ok(await job5.finish());
+        t.ok(await job4.remove());
+
+        t.same((await minion.jobs({ ids: [id5] }).next()).lax, true);
+        t.ok(await minion.job(id5).then(job => job.retry()));
+        t.same((await minion.jobs({ ids: [id5] }).next()).lax, true);
+        t.ok(await minion.job(id5).then(job => job.retry({ lax: false })));
+        t.same((await minion.jobs({ ids: [id5] }).next()).lax, false);
+        t.ok(await minion.job(id5).then(job => job.retry()));
+        t.same((await minion.jobs({ ids: [id5] }).next()).lax, false);
+        t.ok(await minion.job(id5).then(job => job.remove()));
+        await worker.unregister();
+    });
+
+    await t.test('Expiring jobs', async t => {
+        const id = await minion.enqueue('test');
+        t.notOk((await minion.job(id).then(job => job.info())).expires);
+        t.ok(await minion.job(id).then(job => job.remove()));
+
+        const id2 = await minion.enqueue('test', [], { expire: 300000 });
+        t.same(
+            (await minion.job(id2).then(job => job.info())).expires instanceof
+                Date,
+            true
+        );
+        const worker = await minion.worker().register();
+        const job = await worker.dequeue();
+        t.equal(job.id, id2);
+        const expires = (await job.info()).expires;
+        t.same(expires instanceof Date, true);
+        t.ok(await job.finish());
+        t.ok(await job.retry({ expire: 600000 }));
+        const info = await minion.job(id2).then(job => job.info());
+        t.equal(info.state, 'inactive');
+        t.same(info.expires instanceof Date, true);
+        t.not(info.expires.getTime(), expires.getTime());
+        await minion.repair();
+        t.equal(await minion.jobs({ states: ['inactive'] }).total(), 1);
+        const job2 = await worker.dequeue();
+        t.equal(job2.id, id2);
+        t.ok(await job2.finish());
+
+        const id3 = await minion.enqueue('test', [], { expire: 300000 });
+        t.equal(await minion.jobs({ states: ['inactive'] }).total(), 1);
+        const back = minion.backend;
+        const mJ = minion.backend.mongoose.models.minionJobs;
+
+        await mJ.updateOne(
+            { _id: back._oid(id3) },
+            { expires: dayjs().subtract(1, 'days').toDate() }
+        );
+        await minion.repair();
+        t.notOk(await worker.dequeue());
+        t.equal(await minion.jobs({ states: ['inactive'] }).total(), 0);
+
+        const id4 = await minion.enqueue('test', [], { expire: 300000 });
+        const job4 = await worker.dequeue();
+        t.equal(job4.id, id4);
+        t.ok(await job4.finish());
+        await mJ.updateOne(
+            { _id: back._oid(id4) },
+            { expires: dayjs().subtract(1, 'days').toDate() }
+        );
+        await minion.repair();
+        t.equal((await job4.info()).state, 'finished');
+
+        const id5 = await minion.enqueue('test', [], { expire: 300000 });
+        const job5 = await worker.dequeue();
+        t.equal(job5.id, id5);
+        t.ok(await job5.fail());
+        await mJ.updateOne(
+            { _id: back._oid(id5) },
+            { expires: dayjs().subtract(1, 'days').toDate() }
+        );
+        await minion.repair();
+        t.equal((await job5.info()).state, 'failed');
+
+        const id6 = await minion.enqueue('test', [], { expire: 300000 });
+        const job6 = await worker.dequeue();
+        t.equal(job6.id, id6);
+        await mJ.updateOne(
+            { _id: back._oid(id6) },
+            { expires: dayjs().subtract(1, 'days').toDate() }
+        );
+        await minion.repair();
+        t.equal((await job6.info()).state, 'active');
+        t.ok(await job6.finish());
+
+        const id7 = await minion.enqueue('test', [], { expire: 300000 });
+        const id8 = await minion.enqueue('test', [], {
+            expire: 300000,
+            parents: [id7]
+        });
+        t.notOk(await worker.dequeue(0, { id: id8 }));
+        await mJ.updateOne(
+            { _id: back._oid(id7) },
+            { expires: dayjs().subtract(1, 'days').toDate() }
+        );
+        await minion.repair();
+        const job8 = await worker.dequeue(0, { id: id8 });
+        t.ok(await job8.finish());
+        await worker.unregister();
+    });
+
+    await t.test('performJobs', async t => {
+        minion.addTask('record_pid', async job => {
+            await job.finish({ pid: process.pid });
+        });
+        minion.addTask('perform_fails', async () => {
+            throw new Error('Just a test');
+        });
+
+        const id = await minion.enqueue('record_pid');
+        const id2 = await minion.enqueue('perform_fails');
+        const id3 = await minion.enqueue('record_pid');
+        await minion.performJobs();
+        const job = await minion.job(id);
+        t.equal(job.task, 'record_pid');
+        t.equal((await job.info()).state, 'finished');
+        t.same((await job.info()).result, { pid: process.pid });
+        const job2 = await minion.job(id2);
+        t.equal(job2.task, 'perform_fails');
+        t.equal((await job2.info()).state, 'failed');
+        t.match((await job2.info()).result, { message: /Just a test/ });
+        const job3 = await minion.job(id3);
+        t.equal(job3.task, 'record_pid');
+        t.equal((await job3.info()).state, 'finished');
+        t.same((await job3.info()).result, { pid: process.pid });
+
+        const id4 = await minion.enqueue('record_pid');
+        await minion.performJobs();
+        const job4 = await minion.job(id4);
+        t.equal(job4.task, 'record_pid');
+        t.equal((await job4.info()).state, 'finished');
+        t.same((await job4.info()).result, { pid: process.pid });
+    });
+
+    await t.test('Foreground', async t => {
+        const id = await minion.enqueue('test', [], { attempts: 2 });
+        const id2 = await minion.enqueue('test');
+        const id3 = await minion.enqueue('test', [], { parents: [id, id2] });
+        const id_faked = new minion.backend.mongoose.Types.ObjectId();
+        t.notOk(await minion.foreground(id_faked));
+        t.notOk(await minion.foreground(id3));
+        const info = await minion.job(id).then(job => job.info());
+        t.equal(info.attempts, 2);
+        t.equal(info.state, 'inactive');
+        t.equal(info.queue, 'default');
+        t.ok(await minion.foreground(id));
+        const info2 = await minion.job(id).then(job => job.info());
+        t.equal(info2.attempts, 1);
+        t.equal(info2.retries, 1);
+        t.equal(info2.state, 'finished');
+        t.equal(info2.queue, 'minion_foreground');
+        t.ok(await minion.foreground(id2));
+        const info3 = await minion.job(id2).then(job => job.info());
+        t.equal(info3.retries, 1);
+        t.equal(info3.state, 'finished');
+        t.equal(info3.queue, 'minion_foreground');
+
+        t.ok(await minion.foreground(id3));
+        const info4 = await minion.job(id3).then(job => job.info());
+        t.equal(info4.retries, 2);
+        t.equal(info4.state, 'finished');
+        t.equal(info4.queue, 'minion_foreground');
+
+        const id4 = await minion.enqueue('fail');
+        let result;
+        try {
+            await minion.foreground(id4);
+        } catch (error) {
+            result = error;
+        }
+        t.match(result, { message: /Intentional failure/ });
+        const info5 = await minion.job(id4).then(job => job.info());
+        t.ok(info5.worker);
+        t.equal((await minion.stats()).workers, 0);
+        t.equal(info5.retries, 1);
+        t.equal(info5.state, 'failed');
+        t.equal(info5.queue, 'minion_foreground');
+        t.match(info5.result, { message: /Intentional failure/ });
+    });
+
     await minion.end();
 });
