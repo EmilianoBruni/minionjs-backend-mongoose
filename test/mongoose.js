@@ -1403,5 +1403,48 @@ t.test('Mongoose backend', skip, async t => {
         t.match(info5.result, { message: /Intentional failure/ });
     });
 
+    await t.test('Worker remote control commands', async t => {
+        const worker = await minion.worker().register();
+        await worker.processCommands();
+        const worker2 = await minion.worker().register();
+        let commands = [];
+        for (const current of [worker, worker2]) {
+            current.addCommand('test_id', async (w, ...args) =>
+                commands.push([w.id, ...args])
+            );
+        }
+        worker.addCommand('test_args', async (w, ...args) =>
+            commands.push([w.id, ...args])
+        );
+        t.ok(await minion.broadcast('test_id', [], [worker.id]));
+        t.ok(await minion.broadcast('test_id', [], [worker.id, worker2.id]));
+        await worker.processCommands();
+        await worker2.processCommands();
+        t.same(commands, [[worker.id], [worker.id], [worker2.id]]);
+
+        commands = [];
+        t.ok(await minion.broadcast('test_id'));
+        t.ok(await minion.broadcast('test_whatever'));
+        t.ok(await minion.broadcast('test_args', [23]));
+        t.ok(
+            await minion.broadcast(
+                'test_args',
+                [1, [2], { 3: 'three' }],
+                [worker.id]
+            )
+        );
+        await worker.processCommands();
+        await worker2.processCommands();
+        t.same(commands, [
+            [worker.id],
+            [worker.id, 23],
+            [worker.id, 1, [2], { 3: 'three' }],
+            [worker2.id]
+        ]);
+        await worker.unregister();
+        await worker2.unregister();
+        t.notOk(await minion.broadcast('test_id', []));
+    });
+
     await minion.end();
 });
