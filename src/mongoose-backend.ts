@@ -220,6 +220,29 @@ export class MongooseBackend {
     }
 
     /**
+     * Broadcast remote control command to one or more workers.
+     */
+    async broadcast(
+        command: string,
+        args: any[] = [],
+        ids: MinionWorkerId[] = []
+    ): Promise<boolean> {
+        const inbox = [command, ...args];
+        const match =
+            ids.length === 0
+                ? {}
+                : { _id: { $in: ids.map(id => this._oid(id)) } };
+        console.log(inbox);
+        console.log(ids.map(id => this._oid(id)));
+
+        const res = await this.mongoose.models.minionWorkers.updateMany(match, {
+            $push: { inbox: inbox }
+        });
+
+        return res.modifiedCount > 0;
+    }
+
+    /**
      * Stop using the queue.
      */
     async end(): Promise<void> {
@@ -650,6 +673,25 @@ export class MongooseBackend {
         );
 
         return result.modifiedCount > 0;
+    }
+
+    /**
+     * Receive remote control commands for worker.
+     */
+    async receive(id: MinionWorkerId): Promise<Array<[string, ...any[]]>> {
+        const oldWorker =
+            await this.mongoose.models.minionWorkers.findOneAndUpdate<IMinionWorkers>(
+                { _id: this._oid(id), inbox: { $not: { $size: 0 } } },
+                { inbox: [] }
+            );
+        return oldWorker ? oldWorker.inbox : [];
+        // const results = await this.pg.query<ReceiveResult>`
+        //   UPDATE minion_workers AS new SET inbox = '[]'
+        //   FROM (SELECT id, inbox FROM minion_workers WHERE id = ${id} FOR UPDATE) AS old
+        //   WHERE new.id = old.id AND old.inbox != '[]'
+        //   RETURNING old.inbox AS inbox
+        // `;
+        //    return results.first?.inbox ?? [];
     }
 
     /**
