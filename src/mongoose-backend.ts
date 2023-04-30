@@ -187,7 +187,7 @@ export class MongooseBackend {
         } else {
             this.mongoose = config;
         }
-        this.mongoose.set({ debug: true, autoCreate: false, autoIndex: false });
+        this.mongoose.set({ autoCreate: false, autoIndex: false });
         this._loadModels();
     }
 
