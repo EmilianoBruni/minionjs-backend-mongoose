@@ -30,6 +30,7 @@ export interface IMinionJobs {
     task: string;
     worker?: [Schema.Types.ObjectId];
     lax?: boolean;
+    __lock?: string;
 }
 
 export const minionJobsSchema: MongooseSchema = {
@@ -63,7 +64,8 @@ export const minionJobsSchema: MongooseSchema = {
         },
         task: { type: String, required: true },
         worker: { type: Schema.Types.ObjectId, ref: 'minion_workers' },
-        lax: { type: Boolean, default: false }
+        lax: { type: Boolean, default: false },
+        __lock: { type: String },
     }
 };
 
