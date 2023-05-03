@@ -65,7 +65,7 @@ export const minionJobsSchema: MongooseSchema = {
         task: { type: String, required: true },
         worker: { type: Schema.Types.ObjectId, ref: 'minion_workers' },
         lax: { type: Boolean, default: false },
-        __lock: { type: String },
+        __lock: { type: String }
     }
 };
 
