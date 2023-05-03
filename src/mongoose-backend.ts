@@ -232,8 +232,6 @@ export class MongooseBackend {
             ids.length === 0
                 ? {}
                 : { _id: { $in: ids.map(id => this._oid(id)) } };
-        console.log(inbox);
-        console.log(ids.map(id => this._oid(id)));
 
         const res = await this.mongoose.models.minionWorkers.updateMany(match, {
             $push: { inbox: inbox }
@@ -443,7 +441,7 @@ export class MongooseBackend {
             $or: [
                 { state: { $ne: 'inactive' } },
                 { expires: { $gt: dayjs().toDate() } },
-                { expires: { $exists: false } }
+                { expires: null }
             ]
         });
 
@@ -1002,7 +1000,7 @@ export class MongooseBackend {
             statsJobs.inactive_jobs;
 
         // if user doesn't have admin authorization. Server uptime missing
-        let uptime = -1;
+        let uptime;
         try {
             const ss = await moo.connection.db.command({
                 iserverStatus: 1,
@@ -1034,7 +1032,9 @@ export class MongooseBackend {
                 wiredTiger: 0
             });
             uptime = ss.uptime;
-        } catch {}
+        } catch {
+            uptime = -1;
+        }
 
         // I don't know why here required to works toLocaleString()
         const statsLocks = await mood.minionLocks.countDocuments({
@@ -1193,22 +1193,33 @@ export class MongooseBackend {
         //     WHERE delayed <= NOW() AND id = COALESCE(${jobId}, id)
         // AND priority >= COALESCE(${minPriority}, priority) AND queue = ANY (${queues}) AND state = 'inactive'
         //       AND task = ANY (${tasks}) AND (EXPIRES IS NULL OR expires > NOW())
-        const results = this.mongoose.models.minionJobs
-            .aggregate<DequeueResult>()
-            .match({
-                delayed: { $lte: now },
-                state: 'inactive',
-                task: { $in: tasks },
-                queue: { $in: queues },
-                $or: [
-                    { expires: { $gt: now } },
-                    { expires: { $exists: false } }
-                ]
-            });
+        type AggregateResult = DequeueResult & { parents: []; lax: boolean };
+        const mJ = this.mongoose.models.minionJobs;
+        type IMatch = {
+            delayed: object;
+            state: string;
+            task: object;
+            queue: object;
+            $or: [object, object];
+            _id?: Types.ObjectId | undefined;
+            priority?: object;
+        };
+        const match: IMatch = {
+            delayed: { $lte: now },
+            state: 'inactive',
+            task: { $in: tasks },
+            queue: { $in: queues },
+            $or: [{ expires: { $gt: now } }, { expires: null }]
+        };
 
-        if (jobId !== undefined) results.match({ _id: this._oid(jobId) });
-        if (minPriority !== undefined)
-            results.match({ priority: { $gte: minPriority } });
+        if (jobId !== undefined) match._id = this._oid(jobId);
+        if (minPriority !== undefined) match.priority = { $gte: minPriority };
+
+        const results = mJ.find<AggregateResult>(
+            match,
+            { id: '$_id', args: 1, retries: 1, task: 1, parents: 1, lax: 1 },
+            { sort: { priority: -1, _id: 1 } }
+        );
 
         // AND (parents = '{}' OR
         // NOT EXISTS (
@@ -1217,54 +1228,56 @@ export class MongooseBackend {
         //         OR (state = 'inactive' AND (expires IS NULL OR expires > NOW())))
         //     ))
 
-        results.lookup({
-            from: 'minion_jobs',
-            let: { p: '$parents', l: '$lax' },
-            pipeline: [
-                {
-                    $match: {
-                        $expr: { $in: ['$_id', '$$p'] },
-                        $or: [
-                            { state: 'active' },
-                            { state: 'failed', $expr: { $eq: ['$$l', false] } },
-                            {
-                                state: 'inactive',
-                                $or: [
-                                    { $expr: { $gt: ['$expires', now] } },
-                                    { expires: { $exists: false } }
-                                ]
-                            }
-                        ]
-                    }
+        // Mongo doesn't have a lock and unitary find and update so
+        // I return all matching document and then try to find and update
+        // one of this that is (already) inactive
+        let retJob = null;
+        for await (const job of results) {
+            if (job.parents.length == 0) {
+                // just good if parents is empty
+                if (await this._activateJob(id, job)) {
+                    retJob = job;
+                    break;
                 }
-            ],
-            as: 'parents_docs'
-        });
-        results.match({ $or: [{ parents_docs: [] }, { parents: [] }] });
-
-        //     ORDER BY priority DESC, id
-        //     LIMIT 1
-        //     FOR UPDATE SKIP LOCKED
-        //   )
-        results.sort({ priority: -1, _id: 1 }).limit(1);
-        //   RETURNING id, args, retries, task
-        results.project({ id: '$_id', args: 1, retries: 1, task: 1 });
-
-        const job = await results.exec();
-
-        if (job.length > 0) {
-            await this.mongoose.models.minionJobs.updateOne(
-                { _id: job[0].id },
-                {
-                    started: now,
-                    state: 'active',
-                    worker: id
+            } else {
+                const count = await mJ.count({
+                    _id: { $in: job.parents },
+                    $or: [
+                        { state: 'active' },
+                        { state: 'failed', $expr: { $eq: [false, job.lax] } },
+                        {
+                            state: 'inactive',
+                            $or: [{ expires: { $gt: now } }, { expires: null }]
+                        }
+                    ]
+                });
+                if (count === 0 && (await this._activateJob(id, job))) {
+                    retJob = job;
+                    break;
                 }
-            );
-            job[0].id = job[0].id?.toString();
+            }
         }
-        //   UPDATE minion_jobs SET started = NOW(), state = 'active', worker = ${id}
-        return job[0] ?? null;
+
+        if (retJob !== null) retJob.id = retJob?.id?.toString();
+        return retJob;
+    }
+
+    async _activateJob(
+        id: MinionWorkerId,
+        job: DequeueResult
+    ): Promise<boolean> {
+        const now = dayjs().toDate();
+
+        const res = await this.mongoose.models.minionJobs.updateOne(
+            { _id: job.id, state: 'inactive' },
+            {
+                started: now,
+                state: 'active',
+                worker: id
+            }
+        );
+        //console.log(`${job.id} matchedCount: ${res.matchedCount}`);
+        return res.matchedCount === 1;
     }
 
     async _update(
