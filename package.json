@@ -14,7 +14,7 @@
     "clean": "rm -rf tsconfig.tsbuildinfo lib",
     "coverage": "c8 tap --no-coverage test/*.js",
     "coverage:ci": "c8 --reporter lcovonly tap --no-coverage test/*.js",
-    "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\"",
+    "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\" \"examples/*.js\"",
     "lint:fix": "npm run lint -- --fix",
     "prepublishOnly": "npm run build",
     "publish:minor": "npm version minor && npm publish",
