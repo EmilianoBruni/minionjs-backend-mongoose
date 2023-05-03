@@ -13,6 +13,7 @@ const skip =
 
 t.test('Mongoose backend', skip, async t => {
     await mongoose.connect(process.env.TEST_ONLINE);
+    // mongoose.set('debug', true); // for debug
     const minion = new Minion(mongoose, { backendClass: MongooseBackend });
     await minion.update();
     await t.test('Check if correct Backend was loaded', async t => {
@@ -713,7 +714,6 @@ t.test('Mongoose backend', skip, async t => {
         t.same(job.args, [2, 2]);
         t.equal(job.task, 'add');
         t.equal(job.retries, 0);
-        console.log(await job.info());
         t.equal((await job.info()).worker.toString(), worker.id);
         t.notOk((await job.info()).finished);
 
