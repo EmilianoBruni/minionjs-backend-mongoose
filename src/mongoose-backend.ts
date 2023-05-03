@@ -1196,6 +1196,7 @@ export class MongooseBackend {
         type AggregateResult = DequeueResult & { parents: []; lax: boolean };
         const mJ = this.mongoose.models.minionJobs;
         type IMatch = {
+            __lock: string | null;
             delayed: object;
             state: string;
             task: object;
@@ -1205,6 +1206,7 @@ export class MongooseBackend {
             priority?: object;
         };
         const match: IMatch = {
+            __lock: null, // select a not locked document
             delayed: { $lte: now },
             state: 'inactive',
             task: { $in: tasks },
@@ -1215,30 +1217,19 @@ export class MongooseBackend {
         if (jobId !== undefined) match._id = this._oid(jobId);
         if (minPriority !== undefined) match.priority = { $gte: minPriority };
 
-        const results = mJ.find<AggregateResult>(
-            match,
-            { id: '$_id', args: 1, retries: 1, task: 1, parents: 1, lax: 1 },
-            { sort: { priority: -1, _id: 1 } }
-        );
-
-        // AND (parents = '{}' OR
-        // NOT EXISTS (
-        //       SELECT 1 FROM minion_jobs WHERE id = ANY (j.parents) AND (
-        //         state = 'active' OR (state = 'failed' AND NOT j.lax)
-        //         OR (state = 'inactive' AND (expires IS NULL OR expires > NOW())))
-        //     ))
-
-        // Mongo doesn't have a lock and unitary find and update so
-        // I return all matching document and then try to find and update
-        // one of this that is (already) inactive
-        let retJob = null;
-        for await (const job of results) {
-            if (job.parents.length == 0) {
+        let job: IMinionJobs | null = null;
+        let retJob: DequeuedJob | null = null;
+        while (retJob === null) {
+            // find candidate document and optimistic locking
+            job = await mJ.findOneAndUpdate<IMinionJobs>(
+                match,
+                { __lock: id },
+                { sort: { priority: -1, _id: 1 }, lean: true }
+            );
+            if (job == null) break; // not found a candidate to dequeue
+            if (job.parents?.length == 0) {
                 // just good if parents is empty
-                if (await this._activateJob(id, job)) {
-                    retJob = job;
-                    break;
-                }
+                retJob = await this._activateJob(id, job);
             } else {
                 const count = await mJ.count({
                     _id: { $in: job.parents },
@@ -1251,33 +1242,50 @@ export class MongooseBackend {
                         }
                     ]
                 });
-                if (count === 0 && (await this._activateJob(id, job))) {
-                    retJob = job;
-                    break;
-                }
+                if (count === 0) retJob = await this._activateJob(id, job);
             }
         }
 
-        if (retJob !== null) retJob.id = retJob?.id?.toString();
+        if (retJob === null) {
+            // didn't find a valid candidate, remove locks
+            await this.mongoose.models.minionJobs.updateOne(
+                { __lock: id },
+                { $unset: { __lock: 1 } }
+            );
+        }
+
         return retJob;
     }
 
+    /* activate this job, unlock locked jobs and return DequeuedJob */
     async _activateJob(
         id: MinionWorkerId,
-        job: DequeueResult
-    ): Promise<boolean> {
+        job: IMinionJobs
+    ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
 
         const res = await this.mongoose.models.minionJobs.updateOne(
-            { _id: job.id, state: 'inactive' },
+            { _id: job._id },
             {
                 started: now,
                 state: 'active',
                 worker: id
             }
         );
-        //console.log(`${job.id} matchedCount: ${res.matchedCount}`);
-        return res.matchedCount === 1;
+        console.assert(
+            res.modifiedCount === 1,
+            'Problem in activate locked job'
+        );
+        await this.mongoose.models.minionJobs.updateMany(
+            { __lock: id },
+            { $unset: { __lock: 1 } }
+        );
+        return {
+            id: job._id?.toString(),
+            args: job.args,
+            retries: job.retries ?? 0,
+            task: job.task
+        };
     }
 
     async _update(
