@@ -65,10 +65,24 @@ const workers = [];
 for (let i = 1; i <= WORKERS; i++) {
     workers.push(dequeue(i));
 }
-const dequeueStart = performance.now();
+let dequeueStart = performance.now();
 await Promise.all(workers);
-const dequeueElapsed = ((performance.now() - dequeueStart) / 1000).toFixed(3);
-const dequeueAvg = ((DEQUEUE * WORKERS) / dequeueElapsed).toFixed(2);
+let dequeueElapsed = ((performance.now() - dequeueStart) / 1000).toFixed(3);
+let dequeueAvg = ((DEQUEUE * WORKERS) / dequeueElapsed).toFixed(2);
+console.log(
+    `${WORKERS} workers finished ${
+        DEQUEUE * WORKERS
+    } jobs in ${dequeueElapsed} seconds (${dequeueAvg}/s)`
+);
+
+workers.length = 0;
+for (let i = 1; i <= WORKERS; i++) {
+    workers.push(dequeue(i));
+}
+dequeueStart = performance.now();
+await Promise.all(workers);
+dequeueElapsed = ((performance.now() - dequeueStart) / 1000).toFixed(3);
+dequeueAvg = ((DEQUEUE * WORKERS) / dequeueElapsed).toFixed(2);
 console.log(
     `${WORKERS} workers finished ${
         DEQUEUE * WORKERS
