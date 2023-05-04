@@ -1217,6 +1217,9 @@ export class MongooseBackend {
         if (jobId !== undefined) match._id = this._oid(jobId);
         if (minPriority !== undefined) match.priority = { $gte: minPriority };
 
+        // track of locked jobs
+        const lockedJobs: (Types.ObjectId|undefined)[] = [];
+
         let job: IMinionJobs | null = null;
         let retJob: DequeuedJob | null = null;
         while (retJob === null) {
@@ -1227,9 +1230,10 @@ export class MongooseBackend {
                 { sort: { priority: -1, _id: 1 }, lean: true }
             );
             if (job == null) break; // not found a candidate to dequeue
+            lockedJobs.push(job._id);
             if (job.parents?.length == 0) {
                 // just good if parents is empty
-                retJob = await this._activateJob(id, job);
+                retJob = await this._activateJob(id, job, lockedJobs);
             } else {
                 const count = await mJ.count({
                     _id: { $in: job.parents },
@@ -1242,14 +1246,14 @@ export class MongooseBackend {
                         }
                     ]
                 });
-                if (count === 0) retJob = await this._activateJob(id, job);
+                if (count === 0) retJob = await this._activateJob(id, job,lockedJobs);
             }
         }
 
         if (retJob === null) {
             // didn't find a valid candidate, remove locks
-            await this.mongoose.models.minionJobs.updateOne(
-                { __lock: id },
+            await this.mongoose.models.minionJobs.updateMany(
+                { _id: {$in: lockedJobs} },
                 { $unset: { __lock: 1 } }
             );
         }
@@ -1260,7 +1264,8 @@ export class MongooseBackend {
     /* activate this job, unlock locked jobs and return DequeuedJob */
     async _activateJob(
         id: MinionWorkerId,
-        job: IMinionJobs
+        job: IMinionJobs,
+        lockedJobs: (Types.ObjectId|undefined)[]
     ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
 
@@ -1277,7 +1282,7 @@ export class MongooseBackend {
             'Problem in activate locked job'
         );
         await this.mongoose.models.minionJobs.updateMany(
-            { __lock: id },
+            { _id: {$in: lockedJobs} },
             { $unset: { __lock: 1 } }
         );
         return {
