@@ -49,7 +49,7 @@ export interface EnqueueOptions {
     expire?: number;
     lax?: boolean;
     notes?: Record<string, any>;
-    parents?: MinionJobOid[];
+    parents?: string[];
     priority?: number;
     queue?: string;
 }
@@ -206,26 +206,30 @@ export class MongooseBackend {
         args: MinionArgs = [],
         options: EnqueueOptions = {}
     ): Promise<MinionJobId> {
-        const mJobs = this.mongoose.models.minionJobs;
+        const mJ = this.mongoose.connection.db.collection('minion_jobs');
+        const now = dayjs();
 
-        const job = new mJobs<IMinionJobs>({
+        const job: IMinionJobs = {
             args: args,
             attempts: options.attempts ?? 1,
-            delayed: dayjs()
-                .add(options.delay ?? 0, 'milliseconds')
-                .toDate(),
+            created: now.toDate(),
+            retries: 0,
+            state: 'inactive',
+            delayed: now.add(options.delay ?? 0, 'milliseconds').toDate(),
             lax: options.lax ?? false,
             notes: options.notes ?? {},
-            parents: options.parents ?? [],
             priority: options.priority ?? 0,
             queue: options.queue ?? 'default',
             task: task
-        });
+        };
         if (options.expire !== undefined)
-            job.expires = dayjs().add(options.expire, 'milliseconds').toDate();
-        await job.save();
+            job.expires = now.add(options.expire, 'milliseconds').toDate();
+        if (options.parents != undefined && options.parents.length > 0)
+            job.parents = options.parents?.map(e => this._oidNN(e));
+        else job.parents = [];
 
-        return job._id?.toString();
+        const ret = await mJ.insertOne(job);
+        return ret.insertedId.toString();
     }
 
     /**
@@ -1107,6 +1111,9 @@ export class MongooseBackend {
 
     _oid(oidString: string | undefined): Types.ObjectId | undefined {
         if (oidString == undefined) return undefined;
+        return new this.mongoose.Types.ObjectId(oidString);
+    }
+    _oidNN(oidString: string): Types.ObjectId {
         return new this.mongoose.Types.ObjectId(oidString);
     }
 
