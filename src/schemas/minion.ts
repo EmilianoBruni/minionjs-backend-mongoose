@@ -28,7 +28,7 @@ export interface IMinionJobs {
     started?: Date;
     state?: MinionStates;
     task: string;
-    worker?: [Schema.Types.ObjectId];
+    worker?: Types.ObjectId;
     lax?: boolean;
     __lock?: string;
 }
