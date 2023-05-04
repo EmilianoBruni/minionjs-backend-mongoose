@@ -1126,47 +1126,36 @@ export class MongooseBackend {
         const queues = options.queues ?? ['default'];
         const tasks = Object.keys(this.minion.tasks);
 
-        const now = Date.now();
+        const now = dayjs().toDate();
 
-        //     SELECT id FROM minion_jobs AS j
-        //     WHERE delayed <= NOW() AND id = COALESCE(${jobId}, id)
-        // AND priority >= COALESCE(${minPriority}, priority) AND queue = ANY (${queues}) AND state = 'inactive'
-        //       AND task = ANY (${tasks}) AND (EXPIRES IS NULL OR expires > NOW())
-        const mJ = this.mongoose.models.minionJobs;
-        type IMatch = {
-            __lock: string | null;
-            delayed: object;
-            state: string;
-            task: object;
-            queue: object;
-            $or: [object, object];
-            _id?: Types.ObjectId | undefined;
-            priority?: object;
-        };
-        const match: IMatch = {
-            __lock: null, // select a not locked document
+        const mJ =
+            this.mongoose.connection.db.collection<IMinionJobs>('minion_jobs');
+
+        const match: mongodb.Filter<IMinionJobs> = {
+            __lock: undefined, // select a not locked document
             delayed: { $lte: now },
             state: 'inactive',
             task: { $in: tasks },
             queue: { $in: queues },
-            $or: [{ expires: { $gt: now } }, { expires: null }]
+            $or: [{ expires: { $gt: now } }, { expires: undefined }]
         };
 
         if (jobId !== undefined) match._id = this._oid(jobId);
         if (minPriority !== undefined) match.priority = { $gte: minPriority };
 
         // track of locked jobs
-        const lockedJobs: (Types.ObjectId | undefined)[] = [];
+        const lockedJobs: Types.ObjectId[] = [];
 
-        let job: IMinionJobs | null = null;
+        const job: any | null = null;
         let retJob: DequeuedJob | null = null;
         while (retJob === null) {
             // find candidate document and optimistic locking
-            job = await mJ.findOneAndUpdate<IMinionJobs>(
+            const res = await mJ.findOneAndUpdate(
                 match,
-                { __lock: id },
-                { sort: { priority: -1, _id: 1 }, lean: true }
+                { $set: { __lock: id } },
+                { sort: { priority: -1, _id: 1 } }
             );
+            const job = res.value;
             if (job == null) break; // not found a candidate to dequeue
             lockedJobs.push(job._id);
             if (job.parents?.length == 0) {
@@ -1191,7 +1180,7 @@ export class MongooseBackend {
 
         if (retJob === null) {
             // didn't find a valid candidate, remove locks
-            await this.mongoose.models.minionJobs.updateMany(
+            await mJ.updateMany(
                 { _id: { $in: lockedJobs } },
                 { $unset: { __lock: 1 } }
             );
@@ -1204,23 +1193,27 @@ export class MongooseBackend {
     async _activateJob(
         id: MinionWorkerId,
         job: IMinionJobs,
-        lockedJobs: (Types.ObjectId | undefined)[]
+        lockedJobs: Types.ObjectId[]
     ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
+        const mJ =
+            this.mongoose.connection.db.collection<IMinionJobs>('minion_jobs');
 
-        const res = await this.mongoose.models.minionJobs.updateOne(
+        const res = await mJ.updateOne(
             { _id: job._id },
             {
-                started: now,
-                state: 'active',
-                worker: id
+                $set: {
+                    started: now,
+                    state: 'active',
+                    worker: this._oidNN(id)
+                }
             }
         );
         console.assert(
             res.modifiedCount === 1,
             'Problem in activate locked job'
         );
-        await this.mongoose.models.minionJobs.updateMany(
+        await mJ.updateMany(
             { _id: { $in: lockedJobs } },
             { $unset: { __lock: 1 } }
         );
