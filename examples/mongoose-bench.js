@@ -5,14 +5,14 @@ import Minion from '@minionjs/core';
 const ENQUEUE = 10000;
 const DEQUEUE = 1000;
 const WORKERS = 4;
-const INFO = 100;
-const STATS = 100;
+// const INFO = 100;
+// const STATS = 100;
 
 // const ENQUEUE = 1200;
 // const DEQUEUE = 300;
 // const WORKERS = 4;
-// const INFO = 100;
-// const STATS = 100;
+const INFO = 0;
+const STATS = 0;
 
 const minion = new Minion(
     { uri: process.env.TEST_ONLINE },

@@ -2,10 +2,8 @@ import type { IMinionJobs, IMinionWorkers } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 import type {
     DailyHistory,
-    JobInfo,
     JobList,
     ListLocksOptions,
-    LockInfo,
     LockOptions,
     LockList,
     MinionArgs,
@@ -14,7 +12,6 @@ import type {
     RegisterWorkerOptions,
     ResetOptions,
     RetryOptions,
-    WorkerInfo,
     WorkerList
 } from '@minionjs/core/lib/types';
 import type mongodb from 'mongodb';
@@ -22,12 +19,10 @@ import os from 'node:os';
 import {
     minionJobsSchema,
     minionWorkersSchema,
-    minionLocksSchema,
-    IMinionLocks
+    minionLocksSchema
 } from './schemas/minion.js';
-import Path from '@mojojs/path';
 import dayjs from 'dayjs';
-import { ObjectId, Types, Mongoose } from 'mongoose';
+import { Types, Mongoose } from 'mongoose';
 
 export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 export type MinionWorkerId = string;
@@ -70,50 +65,6 @@ export interface DequeueOptions {
     id?: MinionJobId;
     minPriority?: number;
     queues?: string[];
-}
-
-//? If pg-backends should export these interface we could import
-
-interface DequeueResult {
-    id: MinionJobId;
-    args: MinionArgs;
-    retries: number;
-    task: string;
-}
-
-interface EnqueueResult {
-    id: MinionJobId;
-}
-
-interface JobWithMissingWorkerResult {
-    id: MinionJobId;
-    retries: number;
-}
-
-type ListJobsResult = JobInfo;
-
-type ListLockResult = LockInfo;
-
-type ListWorkersResult = WorkerInfo;
-
-interface LockResult {
-    minion_lock: boolean;
-}
-
-interface ReceiveResult {
-    inbox: Array<[string, ...any[]]>;
-}
-
-interface RegisterWorkerResult {
-    id: MinionWorkerId;
-}
-
-interface ServerVersionResult {
-    server_version_num: number;
-}
-
-interface UpdateResult {
-    attempts: number;
 }
 
 interface ConnectOptions extends mongodb.MongoClientOptions {
@@ -210,7 +161,7 @@ export class MongooseBackend {
             const timeoutPromise = new Promise(
                 resolve => (timer = setTimeout(resolve, wait))
             );
-            const doc = await Promise.race([newJob.next(), timeoutPromise]);
+            await Promise.race([newJob.next(), timeoutPromise]);
             clearTimeout(timer);
         } else {
             // TODO: standalone
@@ -737,7 +688,6 @@ export class MongooseBackend {
      * Repair worker registry and job queue if necessary.
      */
     async repair(): Promise<void> {
-        const mongoose = this.mongoose;
         const minion = this.minion;
 
         const mWorkers = this.mongoose.models.minionWorkers;
@@ -751,24 +701,6 @@ export class MongooseBackend {
                     .toDate()
             }
         });
-
-        // Old jobs with no unresolved dependencies and expired jobs
-        //   DELETE FROM minion_jobs WHERE id IN (
-        //     SELECT j.id FROM minion_jobs AS j LEFT JOIN minion_jobs AS children
-        //       ON children.state != 'finished' AND ARRAY_LENGTH(children.parents, 1) > 0 AND j.id = ANY(children.parents)
-        const pipeline = mJobs
-            .aggregate()
-            .match({
-                $expr: {
-                    $and: [
-                        { $in: ['$$parent', '$parent'] },
-                        { $ne: ['$state', 'finished'] }
-                    ]
-                }
-            })
-            .pipeline();
-        //     WHERE j.state = 'finished' AND j.finished <= NOW() - INTERVAL '1 millisecond' * ${minion.removeAfter}
-        //       AND children.id IS NULL
 
         const jobs = mJobs
             .aggregate()
@@ -1187,13 +1119,12 @@ export class MongooseBackend {
         const queues = options.queues ?? ['default'];
         const tasks = Object.keys(this.minion.tasks);
 
-        const now = dayjs().toDate();
+        const now = Date.now();
 
         //     SELECT id FROM minion_jobs AS j
         //     WHERE delayed <= NOW() AND id = COALESCE(${jobId}, id)
         // AND priority >= COALESCE(${minPriority}, priority) AND queue = ANY (${queues}) AND state = 'inactive'
         //       AND task = ANY (${tasks}) AND (EXPIRES IS NULL OR expires > NOW())
-        type AggregateResult = DequeueResult & { parents: []; lax: boolean };
         const mJ = this.mongoose.models.minionJobs;
         type IMatch = {
             __lock: string | null;
@@ -1218,7 +1149,7 @@ export class MongooseBackend {
         if (minPriority !== undefined) match.priority = { $gte: minPriority };
 
         // track of locked jobs
-        const lockedJobs: (Types.ObjectId|undefined)[] = [];
+        const lockedJobs: (Types.ObjectId | undefined)[] = [];
 
         let job: IMinionJobs | null = null;
         let retJob: DequeuedJob | null = null;
@@ -1235,7 +1166,7 @@ export class MongooseBackend {
                 // just good if parents is empty
                 retJob = await this._activateJob(id, job, lockedJobs);
             } else {
-                const count = await mJ.count({
+                const count = await mJ.countDocuments({
                     _id: { $in: job.parents },
                     $or: [
                         { state: 'active' },
@@ -1246,14 +1177,15 @@ export class MongooseBackend {
                         }
                     ]
                 });
-                if (count === 0) retJob = await this._activateJob(id, job,lockedJobs);
+                if (count === 0)
+                    retJob = await this._activateJob(id, job, lockedJobs);
             }
         }
 
         if (retJob === null) {
             // didn't find a valid candidate, remove locks
             await this.mongoose.models.minionJobs.updateMany(
-                { _id: {$in: lockedJobs} },
+                { _id: { $in: lockedJobs } },
                 { $unset: { __lock: 1 } }
             );
         }
@@ -1265,7 +1197,7 @@ export class MongooseBackend {
     async _activateJob(
         id: MinionWorkerId,
         job: IMinionJobs,
-        lockedJobs: (Types.ObjectId|undefined)[]
+        lockedJobs: (Types.ObjectId | undefined)[]
     ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
 
@@ -1282,7 +1214,7 @@ export class MongooseBackend {
             'Problem in activate locked job'
         );
         await this.mongoose.models.minionJobs.updateMany(
-            { _id: {$in: lockedJobs} },
+            { _id: { $in: lockedJobs } },
             { $unset: { __lock: 1 } }
         );
         return {
