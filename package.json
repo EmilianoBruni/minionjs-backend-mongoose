@@ -24,9 +24,12 @@
   "keywords": [
     "mongoose",
     "backend",
-    "job-queue"
+    "job-queue",
+    "typescript",
+    "node",
+    "nodejs"
   ],
-  "author": "Emiliano Bruni",
+  "author": "Emiliano Bruni  <info@ebruni.it>",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
