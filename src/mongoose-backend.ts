@@ -14,7 +14,6 @@ import type {
     RetryOptions,
     WorkerList
 } from '@minionjs/core/lib/types';
-import type mongodb from 'mongodb';
 import os from 'node:os';
 import {
     minionJobsSchema,
@@ -22,6 +21,7 @@ import {
     minionLocksSchema
 } from './schemas/minion.js';
 import dayjs from 'dayjs';
+import type { MongooseOptions, QueryWithHelpers, QuerySelector, FilterQuery } from 'mongoose';
 import { Types, Mongoose } from 'mongoose';
 
 export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
@@ -67,21 +67,15 @@ export interface DequeueOptions {
     queues?: string[];
 }
 
-interface ConnectOptions extends mongodb.MongoClientOptions {
+interface ConnectOptions extends MongooseOptions {
     /** Uri string  */
     uri: string;
-    /** Set to false to [disable buffering](http://mongoosejs.com/docs/faq.html#callback_never_executes) on all models associated with this connection. */
-    bufferCommands?: boolean;
     /** The name of the database you want to use. If not provided, Mongoose uses the database name from connection string. */
     dbName?: string;
     /** username for authentication, equivalent to `options.auth.user`. Maintained for backwards compatibility. */
     user?: string;
     /** password for authentication, equivalent to `options.auth.password`. Maintained for backwards compatibility. */
     pass?: string;
-    /** Set to false to disable automatic index creation for all models associated with this connection. */
-    autoIndex?: boolean;
-    /** Set to `true` to make Mongoose automatically call `createCollection()` on every model created on this connection. */
-    autoCreate?: boolean;
 }
 
 /**
@@ -669,7 +663,6 @@ export class MongooseBackend {
             },
             {
                 upsert: true,
-                lean: true,
                 returnDocument: 'after'
             }
         );
@@ -1128,10 +1121,9 @@ export class MongooseBackend {
 
         const now = dayjs().toDate();
 
-        const mJ =
-            this.mongoose.connection.db.collection<IMinionJobs>('minion_jobs');
+        const mJ = this.mongoose.models.MinionJobs;
 
-        const match: mongodb.Filter<IMinionJobs> = {
+        const match: FilterQuery<IMinionJobs> = {
             __lock: undefined, // select a not locked document
             delayed: { $lte: now },
             state: 'inactive',
@@ -1150,14 +1142,13 @@ export class MongooseBackend {
         let retJob: DequeuedJob | null = null;
         while (retJob === null) {
             // find candidate document and optimistic locking
-            const res = await mJ.findOneAndUpdate(
+            const job = await mJ.findOneAndUpdate<IMinionJobs>(
                 match,
                 { $set: { __lock: id } },
                 { sort: { priority: -1, _id: 1 } }
             );
-            const job = res.value;
-            if (job == null) break; // not found a candidate to dequeue
-            lockedJobs.push(job._id);
+            if (job === undefined || job === null) break; // not found a candidate to dequeue
+            lockedJobs.push(job._id!);
             if (job.parents?.length == 0) {
                 // just good if parents is empty
                 retJob = await this._activateJob(id, job, lockedJobs);
