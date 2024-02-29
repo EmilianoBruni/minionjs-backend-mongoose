@@ -101,23 +101,21 @@ export class MongooseBackend {
 
     /**
      * Return if MongoDB is a replicaset or stand-alone.
+     * If you don't have admin access to the MongoDB server, 
+     * you can't directly check the server status to determine if it's a 
+     * replica set or standalone. However, you can infer this information from 
+     * the connection string used to connect to the MongoDB server.
+     * In a MongoDB connection string for a replica set, you'll typically see 
+     * multiple hosts listed, separated by commas.
      */
 
     isReplicaSet(): boolean | undefined {
         if (this.mongoose === undefined) return undefined;
-        if (this.mongoose.connection.readyState !== 1) return undefined;
+        //  if (this.mongoose.connection.readyState !== 1) return undefined;
         if (this._isReplicaSet !== undefined) return this._isReplicaSet;
-        try {
-            // if this works, then I'm under replicaset
-            this.mongoose.models.minionJobs
-                .watch()
-                .on('change', () => {})
-                .close();
-            this._isReplicaSet = true;
-        } catch {
-            // i'm not under replicaset
-            this._isReplicaSet = false;
-        }
+        const hosts = this.mongoose.connection.getClient().options.hosts;
+        this._isReplicaSet = hosts.length > 1;
+
         return this._isReplicaSet;
     }
 
@@ -158,7 +156,23 @@ export class MongooseBackend {
             await Promise.race([newJob.next(), timeoutPromise]);
             clearTimeout(timer);
         } else {
-            // TODO: standalone
+            // get capped notification collection
+            const notification = await this.notificationCollection();
+            // build an oid from current time
+            const oid = new this.mongoose.Types.ObjectId(Math.floor(Date.now() / 1000).toString(16) + '0000000000000000');
+            const cursor = notification.find({
+                _id: {
+                    $gt: this._oid(id)
+                },
+                queue: { $in: options.queues ?? ['default'] }
+            }, {
+                tailable: true,
+                awaitData: true,
+                maxAwaitTimeMS: wait * 1000
+            });
+            // TODO: look if stream is better. An example here: 
+            // https://stackoverflow.com/questions/35805580/nodejs-mongodb-recurring-tailable-cursor
+            await cursor.next();
         }
 
         return await this._try(id, options);
@@ -223,6 +237,16 @@ export class MongooseBackend {
         else job.parents = [];
 
         const ret = await mJ.insertOne(job);
+        
+        // notify if not in a replicaset
+        if (!this.isReplicaSet()) {
+            const notification = await this.notificationCollection();
+            await notification.insertOne({
+                c: 'created',
+                queue: job.queue ?? 'default'
+            });
+        }
+
         return ret.insertedId.toString();
     }
 
@@ -608,8 +632,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                    merge[k])
+            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -620,6 +644,33 @@ export class MongooseBackend {
         );
 
         return result.modifiedCount > 0;
+    }
+
+    /**
+     * Return a notification capped collection
+     */
+    async notificationCollection(): Promise<QueryWithHelpers<any, any, any>> {
+        const db = this.mongoose.connection.db;
+
+        // check if minion_notifications exists in db
+        const collections = await db.listCollections().toArray();
+        const exists = collections.some(
+            coll => coll.name === 'minion_notifications'
+        );
+        if (exists) {
+            return db.collection('minion_notifications');
+        }
+
+        const collection = await db.createCollection('minion_notifications', {
+            capped: true,
+            size: 10240,
+            max: 128
+        });
+
+        // insert a document to create the collection
+        await collection.insertOne({});
+
+        return collection;
     }
 
     /**
@@ -1121,7 +1172,7 @@ export class MongooseBackend {
 
         const now = dayjs().toDate();
 
-        const mJ = this.mongoose.models.MinionJobs;
+        const mJ = this.mongoose.models.minionJobs;
 
         const match: FilterQuery<IMinionJobs> = {
             __lock: undefined, // select a not locked document
