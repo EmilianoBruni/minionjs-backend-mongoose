@@ -19,7 +19,8 @@
     "prepublishOnly": "npm run build",
     "publish:minor": "npm version minor && npm publish",
     "publish:patch": "npm version patch && npm publish",
-    "test": "tap --no-coverage test/*.js"
+    "test": "tap --no-coverage test/*.js",
+    "test:debug": "npm run test -- --no-timeout"
   },
   "keywords": [
     "mongoose",
