@@ -81,7 +81,7 @@ interface ConnectOptions extends MongooseOptions {
 /**
  * Minion Mongoose backend class.
  */
-export class MongooseBackend {
+export default class MongooseBackend {
     /**
      * Backend name.
      */

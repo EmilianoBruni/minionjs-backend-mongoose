@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { MongooseBackend } from '../lib/mongoose-backend.js';
+import MongooseBackend from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mojo, { util } from '@mojojs/core';
 import dayjs from 'dayjs';
