@@ -639,8 +639,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                    merge[k])
+            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -757,46 +757,17 @@ export class MongooseBackend {
             }
         });
 
-        const jobs = mJobs
-            .aggregate()
-            .match({
-                state: 'finished',
-                finished: {
-                    $lte: dayjs()
-                        .subtract(minion.removeAfter, 'milliseconds')
-                        .toDate()
-                }
-            })
-            .append({
-                $lookup: {
-                    from: 'minion_jobs',
-                    let: { parent: '$_id' },
-                    pipeline: [
-                        {
-                            $match: {
-                                $expr: {
-                                    $and: [
-                                        { $in: ['$$parent', '$parents'] },
-                                        { $ne: ['$state', 'finished'] }
-                                    ]
-                                }
-                            }
-                        }
-                    ],
-                    as: 'parents'
-                }
-            });
+        // Old jobs
+        await mJobs.deleteMany({
+            state: 'finished',
+            finished: {
+                $lte: dayjs()
+                    .subtract(minion.removeAfter, 'milliseconds')
+                    .toDate()
+            }
+        });
 
-        const jobsToDelete: Types.ObjectId[] = [];
-        for await (const job of jobs) {
-            if (job.parents.length == 0) jobsToDelete.push(job._id);
-        }
-        if (jobsToDelete.length > 0)
-            await mJobs.deleteMany({ _id: { $in: jobsToDelete } });
-
-        //     UNION ALL
-        //     SELECT id FROM minion_jobs WHERE state = 'inactive' AND expires <= NOW()
-        //   )
+        // Expired jobs
         await mJobs.deleteMany({
             state: 'inactive',
             expires: { $lte: dayjs().toDate() }

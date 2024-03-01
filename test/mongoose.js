@@ -1147,9 +1147,9 @@ t.test('Mongoose backend', skip, async t => {
         t.same((await job4.info()).parents, [id, id2]);
         t.equal((await minion.stats()).finished_jobs, 2);
         await minion.repair();
-        t.equal((await minion.stats()).finished_jobs, 2);
+        t.equal((await minion.stats()).finished_jobs, 0);
         t.ok(await job4.finish());
-        t.equal((await minion.stats()).finished_jobs, 3);
+        t.equal((await minion.stats()).finished_jobs, 1);
         await minion.repair();
         t.equal((await minion.stats()).finished_jobs, 0);
 
