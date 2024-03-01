@@ -14,6 +14,7 @@ import type {
     RetryOptions,
     WorkerList
 } from '@minionjs/core/lib/types';
+import type { MongooseOptions, QueryWithHelpers, FilterQuery } from 'mongoose';
 import os from 'node:os';
 import {
     minionJobsSchema,
@@ -21,7 +22,6 @@ import {
     minionLocksSchema
 } from './schemas/minion.js';
 import dayjs from 'dayjs';
-import type { MongooseOptions, QueryWithHelpers, QuerySelector, FilterQuery } from 'mongoose';
 import { Types, Mongoose } from 'mongoose';
 
 export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
@@ -89,23 +89,23 @@ export class MongooseBackend {
     /**
      * Minion instance this backend belongs to.
      */
-    minion: Minion;
+    private minion: Minion;
 
     /**
      * `mongoose` object used to store mongoose connection
      */
-    mongoose: Mongoose;
+    private mongoose: Mongoose;
 
-    _hostname = os.hostname();
-    _isReplicaSet: boolean | undefined;
+    private _hostname = os.hostname();
+    private _isReplicaSet: boolean | undefined;
 
     /**
      * Return if MongoDB is a replicaset or stand-alone.
-     * If you don't have admin access to the MongoDB server, 
-     * you can't directly check the server status to determine if it's a 
-     * replica set or standalone. However, you can infer this information from 
+     * If you don't have admin access to the MongoDB server,
+     * you can't directly check the server status to determine if it's a
+     * replica set or standalone. However, you can infer this information from
      * the connection string used to connect to the MongoDB server.
-     * In a MongoDB connection string for a replica set, you'll typically see 
+     * In a MongoDB connection string for a replica set, you'll typically see
      * multiple hosts listed, separated by commas.
      */
 
@@ -145,35 +145,42 @@ export class MongooseBackend {
     ): Promise<DequeuedJob | null> {
         const job = await this._try(id, options);
         if (job !== null) return job;
+        if (wait < 100) wait = 100;
 
+        let timer;
         if (this.isReplicaSet()) {
-            let timer;
             // TODO: reduce filter to match only new Job for this queue
             const newJob = this.mongoose.models.minionJobs.watch([]);
             const timeoutPromise = new Promise(
                 resolve => (timer = setTimeout(resolve, wait))
             );
             await Promise.race([newJob.next(), timeoutPromise]);
-            clearTimeout(timer);
         } else {
             // get capped notification collection
             const notification = await this.notificationCollection();
             // build an oid from current time
-            const oid = new this.mongoose.Types.ObjectId(Math.floor(Date.now() / 1000).toString(16) + '0000000000000000');
-            const cursor = notification.find({
-                _id: {
-                    $gt: this._oid(id)
+            const oid = this.mongoose.mongo.ObjectId.createFromTime(
+                Date.now() / 1000
+            );
+            const cursor = notification.find(
+                {
+                    _id: { $gte: oid },
+                    queue: { $in: options.queues ?? ['default'] }
                 },
-                queue: { $in: options.queues ?? ['default'] }
-            }, {
-                tailable: true,
-                awaitData: true,
-                maxAwaitTimeMS: wait * 1000
-            });
-            // TODO: look if stream is better. An example here: 
-            // https://stackoverflow.com/questions/35805580/nodejs-mongodb-recurring-tailable-cursor
-            await cursor.next();
+                {
+                    tailable: true
+                }
+            );
+            // awaitData and maxAwaitTimeMS doesn't work. Used a timer
+            const timeoutPromise = new Promise(
+                resolve => (timer = setTimeout(resolve, wait))
+            );
+            await Promise.race([cursor.next(), timeoutPromise]);
+
+            // should clear cursor
+            cursor.close();
         }
+        clearTimeout(timer);
 
         return await this._try(id, options);
     }
@@ -237,7 +244,7 @@ export class MongooseBackend {
         else job.parents = [];
 
         const ret = await mJ.insertOne(job);
-        
+
         // notify if not in a replicaset
         if (!this.isReplicaSet()) {
             const notification = await this.notificationCollection();
@@ -632,8 +639,8 @@ export class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                merge[k])
+                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                    merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -1189,7 +1196,6 @@ export class MongooseBackend {
         // track of locked jobs
         const lockedJobs: Types.ObjectId[] = [];
 
-        const job: any | null = null;
         let retJob: DequeuedJob | null = null;
         while (retJob === null) {
             // find candidate document and optimistic locking
@@ -1200,7 +1206,7 @@ export class MongooseBackend {
             );
             if (job === undefined || job === null) break; // not found a candidate to dequeue
             lockedJobs.push(job._id!);
-            if (job.parents?.length == 0) {
+            if (job.parents!.length == 0) {
                 // just good if parents is empty
                 retJob = await this._activateJob(id, job, lockedJobs);
             } else {
