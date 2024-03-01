@@ -1,8 +1,8 @@
 {
   "name": "minionjs-backend-mongoose",
-  "description": "A node.js backend for minion.js",
-  "version": "1.0.0",
-  "main": "index.js",
+  "description": "A Mongoose backend for minion.js",
+  "version": "0.1.0",
+  "main": "lib/mongoose-backend.js",
   "scripts": {
     "build": "npx tsc --build ./",
     "build:clean": "npm run clean && npm run build",
