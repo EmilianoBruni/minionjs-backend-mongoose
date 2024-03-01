@@ -46,6 +46,7 @@
   "devDependencies": {
     "@types/busboy": "^1.5.3",
     "@types/node": "^20.11.24",
+    "@types/react": "^18.2.61",
     "@types/stack-utils": "^2.0.3",
     "@types/tap": "^15.0.11",
     "@types/tough-cookie": "^4.0.5",
