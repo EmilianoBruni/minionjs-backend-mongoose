@@ -115,3 +115,25 @@ export const minionLocksSchema: MongooseSchema = {
         expires: { type: Date, required: true }
     }
 };
+
+export interface IMinionNotifications {
+    _id: Types.ObjectId;
+    c: 'created' | 'updated' | 'deleted';
+    queue: string;
+    createdAt: Date;
+    updatedAt: Date;
+};
+
+export const minionNotificationsSchema: MongooseSchema = {
+    name: 'minion_notifications',
+    alias: 'minionNotifications',
+    options: {
+        timestamps: true,
+        versionKey: false,
+        capped: { size: 1024, max: 1000, autoIndexId: true }
+    },
+    schema: {
+        c: { type: String, enum: ['created', 'updated', 'deleted'], required: true },
+        queue: { type: String, required: false, default: 'default'},
+    }
+};
