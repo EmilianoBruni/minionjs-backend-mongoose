@@ -1065,7 +1065,6 @@ export default class MongooseBackend {
     }
 
     async _initDB() {
-        console.log("Enter initDB");
         let coll = await this.mongoose.connection.db
             .listCollections({ name: 'minion_jobs' })
             .next();
