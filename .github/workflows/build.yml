@@ -1,6 +1,6 @@
 name: build
-#on: [push, pull_request, workflow_dispatch] # disabled for debug
-on: [workflow_dispatch] # disabled for debug
+on: [push, pull_request, workflow_dispatch] # disabled for debug
+#on: [workflow_dispatch] # disabled for debug
 jobs:
   ci:
     runs-on: ubuntu-latest
