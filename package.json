@@ -11,10 +11,10 @@
     "build:node": "npm run build && node",
     "build:test": "npm run build && npm test",
     "build:watch": "npm run build -- --watch",
-    "clean": "rm -rf tsconfig.tsbuildinfo lib",
+    "clean": "rm -rf tsconfig.tsbuildinfo lib && rimraf ./lib",
     "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\" \"examples/*.js\"",
     "lint:fix": "npm run lint -- --fix",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build:clean",
     "publish:minor": "npm version minor && npm publish",
     "publish:patch": "npm version patch && npm publish",
     "test": "tap -j1 --allow-incomplete-coverage test/*.js",
@@ -39,6 +39,7 @@
     "url": "https://github.com/EmilianoBruni/minionjs-backend-mongoose/issues"
   },
   "type": "module",
+  "types": "lib/types/mongoose-backend.d.ts",
   "files": [
     "lib/"
   ],
@@ -66,6 +67,7 @@
     "@minionjs/core": "^0.3.13",
     "@mojojs/core": "^1.26.4",
     "dayjs": "^1.11.10",
-    "mongoose": "^8.2.0"
+    "mongoose": "^8.2.0",
+    "rimraf": "^5.0.5"
   }
 }
