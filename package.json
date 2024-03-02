@@ -19,7 +19,7 @@
     "publish:patch": "npm version patch && npm publish",
     "test": "tap -j1 --allow-incomplete-coverage test/*.js",
     "test:ci": "npm run prepublishOnly && npm run test",
-    "test:debug": "npm run test -- --no-timeout"
+    "test:debug": "npm run test -- --timeout=0"
   },
   "keywords": [
     "mongoose",
