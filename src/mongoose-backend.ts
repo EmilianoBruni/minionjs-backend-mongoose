@@ -19,7 +19,8 @@ import os from 'node:os';
 import {
     minionJobsSchema,
     minionWorkersSchema,
-    minionLocksSchema
+    minionLocksSchema,
+    minionNotificationsSchema
 } from './schemas/minion.js';
 import dayjs from 'dayjs';
 import { Types, Mongoose } from 'mongoose';
@@ -97,7 +98,10 @@ export default class MongooseBackend {
     private mongoose: Mongoose;
 
     private _hostname = os.hostname();
-    private _isReplicaSet: boolean | undefined;
+    private _underReplicaSet: boolean | undefined;
+
+    // to call _initDB only once
+    private _isDBInitialized: boolean = false;
 
     /**
      * Return if MongoDB is a replicaset or stand-alone.
@@ -109,14 +113,24 @@ export default class MongooseBackend {
      * multiple hosts listed, separated by commas.
      */
 
-    isReplicaSet(): boolean | undefined {
+    _isReplicaSet(): boolean | undefined {
         if (this.mongoose === undefined) return undefined;
         //  if (this.mongoose.connection.readyState !== 1) return undefined;
-        if (this._isReplicaSet !== undefined) return this._isReplicaSet;
+        if (this._underReplicaSet !== undefined) return this._underReplicaSet;
         const hosts = this.mongoose.connection.getClient().options.hosts;
-        this._isReplicaSet = hosts.length > 1;
+        this._underReplicaSet = hosts.length > 1;
 
-        return this._isReplicaSet;
+        return this._underReplicaSet;
+    }
+
+    /**
+     * ReplicasSetMode is autodetected if it's one ore more hosts in connection
+     * uri. If you have a replicaSet with only one host use this funciotn to
+     * force replica set mode for the waiting jobs
+     * @param status - The status force the backend to use replicaset functionalities. Give errors if not in a replicaset
+     */
+    replicaSetMode(status: boolean) {
+        this._underReplicaSet = status;
     }
 
     constructor(minion: Minion, config: ConnectOptions | Mongoose) {
@@ -145,38 +159,25 @@ export default class MongooseBackend {
     ): Promise<DequeuedJob | null> {
         const job = await this._try(id, options);
         if (job !== null) return job;
-        if (wait < 100) wait = 100;
 
         let timer;
-        if (this.isReplicaSet()) {
+        const timeoutPromise = new Promise(
+            resolve => (timer = setTimeout(resolve, wait))
+        );
+        if (this._isReplicaSet()) {
             // TODO: reduce filter to match only new Job for this queue
             const newJob = this.mongoose.models.minionJobs.watch([]);
-            const timeoutPromise = new Promise(
-                resolve => (timer = setTimeout(resolve, wait))
-            );
             await Promise.race([newJob.next(), timeoutPromise]);
         } else {
-            // get capped notification collection
-            const notification = await this.notificationCollection();
-            // build an oid from current time
-            const oid = this.mongoose.mongo.ObjectId.createFromTime(
-                Date.now() / 1000
-            );
-            const cursor = notification.find(
+            const notification = this.mongoose.models.minionNotifications;
+            const notify = notification.find(
                 {
-                    _id: { $gte: oid },
+                    createdAt: { $gte: dayjs().toDate() },
                     queue: { $in: options.queues ?? ['default'] }
-                },
-                {
-                    tailable: true
                 }
-            );
-            // awaitData and maxAwaitTimeMS doesn't work. Used a timer
-            const timeoutPromise = new Promise(
-                resolve => (timer = setTimeout(resolve, wait))
-            );
+            ).tailable();
+            const cursor = notify.cursor();
             await Promise.race([cursor.next(), timeoutPromise]);
-
             // should clear cursor
             cursor.close();
         }
@@ -246,12 +247,13 @@ export default class MongooseBackend {
         const ret = await mJ.insertOne(job);
 
         // notify if not in a replicaset
-        if (!this.isReplicaSet()) {
-            const notification = await this.notificationCollection();
-            await notification.insertOne({
+        if (!this._isReplicaSet()) {
+            //const notification = await this.notificationCollection();
+            const notification = new this.mongoose.models.minionNotifications({
                 c: 'created',
-                queue: job.queue ?? 'default'
+                queue: job.queue ?? 'default',
             });
+            await notification.save();
         }
 
         return ret.insertedId.toString();
@@ -654,33 +656,6 @@ export default class MongooseBackend {
     }
 
     /**
-     * Return a notification capped collection
-     */
-    async notificationCollection(): Promise<QueryWithHelpers<any, any, any>> {
-        const db = this.mongoose.connection.db;
-
-        // check if minion_notifications exists in db
-        const collections = await db.listCollections().toArray();
-        const exists = collections.some(
-            coll => coll.name === 'minion_notifications'
-        );
-        if (exists) {
-            return db.collection('minion_notifications');
-        }
-
-        const collection = await db.createCollection('minion_notifications', {
-            capped: true,
-            size: 10240,
-            max: 128
-        });
-
-        // insert a document to create the collection
-        await collection.insertOne({});
-
-        return collection;
-    }
-
-    /**
      * Receive remote control commands for worker.
      */
     async receive(id: MinionWorkerId): Promise<Array<[string, ...any[]]>> {
@@ -709,7 +684,7 @@ export default class MongooseBackend {
         const status = options.status ?? {};
         const mWorkers = this.mongoose.models.minionWorkers;
 
-        this._initDB();
+        if (!this._isDBInitialized) await this._initDB();
 
         const worker = await mWorkers.findOneAndUpdate<IMinionWorkers>(
             { _id: this._oid(id) || new Types.ObjectId() },
@@ -747,6 +722,8 @@ export default class MongooseBackend {
 
         const mWorkers = this.mongoose.models.minionWorkers;
         const mJobs = this.mongoose.models.minionJobs;
+
+        if (!this._isDBInitialized) await this._initDB();
 
         // Workers without heartbeat
         await mWorkers.deleteMany({
@@ -803,6 +780,7 @@ export default class MongooseBackend {
      * Reset job queue.
      */
     async reset(options: ResetOptions): Promise<void> {
+        if (!this._isDBInitialized) await this._initDB();
         if (options.all === true)
             for await (const coll of [
                 this.mongoose.models.minionJobs,
@@ -1045,15 +1023,9 @@ export default class MongooseBackend {
      * Update database schema to latest version.
      */
     async update(): Promise<void> {
-        /** Current do nothing. We don't support (and maybe Moongoose doesnt' need
-         *  migration code
-         */
-        // const job = new this.mongoose.models.minionLocks({
-        //     expires: Date.now(),
-        //     name: 'Pippo'
-        // });
-        // await job.save();
-        await this._initDB();
+        // Current do nothing. We don't support (and maybe Moongoose 
+        // doesnt' need migration code
+        if (!this._isDBInitialized) await this._initDB();
     }
 
     async _autoRetryJob(
@@ -1070,7 +1042,7 @@ export default class MongooseBackend {
     }
 
     _loadModels() {
-        [minionJobsSchema, minionLocksSchema, minionWorkersSchema].forEach(
+        [minionJobsSchema, minionLocksSchema, minionWorkersSchema, minionNotificationsSchema].forEach(
             model => {
                 const schema = new this.mongoose.Schema(model.schema, {
                     collection: model.name,
@@ -1093,6 +1065,7 @@ export default class MongooseBackend {
     }
 
     async _initDB() {
+        console.log("Enter initDB");
         let coll = await this.mongoose.connection.db
             .listCollections({ name: 'minion_jobs' })
             .next();
@@ -1129,6 +1102,27 @@ export default class MongooseBackend {
             );
             await this.mongoose.models.minionLocks.ensureIndexes();
         }
+        // this is a workaround because actually mongoose doesn't create capped 
+        // collection. I don't know why
+        if (!this._underReplicaSet) {
+            const db = this.mongoose.connection.db;
+            coll = await db.listCollections({ name: 'minion_notifications' }).next();
+            if (coll === null) {
+                this.mongoose.models.minionNotifications.schema.index(
+                    { createdAt: -1 },
+                    { background: true }
+                );
+                await this.mongoose.models.minionNotifications.ensureIndexes();
+            }
+            const mN = db.collection('minion_notifications')
+            mN.isCapped().then((isCapped) => {
+                if (!isCapped) {
+                    console.log("Converted to capped");
+                    db.command({ "convertToCapped": "minion_notifications", size: 10240, max: 127 });
+                }
+            });
+        }
+        this._isDBInitialized = true;
     }
 
     _oid(oidString: string | undefined): Types.ObjectId | undefined {
