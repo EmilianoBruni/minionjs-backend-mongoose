@@ -1084,6 +1084,9 @@ export default class MongooseBackend {
     }
 
     async _initDB() {
+        this.mongoose.set({ autoCreate: false, autoIndex: false });
+        this._loadModels();
+
         let coll = await this.mongoose.connection.db
             .listCollections({ name: 'minion_jobs' })
             .next();
@@ -1139,8 +1142,6 @@ export default class MongooseBackend {
                 }
             });
         }
-        this.mongoose.set({ autoCreate: false, autoIndex: false });
-        this._loadModels();
         this._isDBInitialized = true;
     }
 
