@@ -22,8 +22,12 @@ npm i minionjs-backend-mongoose -s
 import Minion from '@minionjs/core';
 import MongooseBackend from 'minionjs-backend-mongoose';
 
-// Use the default high performance PostgreSQL backend
-const minion = new Minion('mongodb://user:password@localhost:27017/database?authSource=admin');
+// Use the high performance MongoDB backend
+const uri = 'mongodb://user:password@localhost:27017/database?authSource=admin'
+const minion = new Minion({uri: uri}, {backendClass: MongooseBackend}));
+// or
+// await mongoose.connect(uri);
+// const minion = new Minion(mongoose, { backendClass: MongooseBackend });
 
 // Update the database schema to the latest version
 await minion.update();
@@ -59,7 +63,7 @@ See [Minion.js documentation](https://github.com/mojolicious/minion.js) for othe
 
 ## Author
 
-Emiliano Bruni <info@ebruni.it>
+Emiliano Bruni - <info@ebruni.it>
 
 ## License
 
