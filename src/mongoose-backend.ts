@@ -138,14 +138,30 @@ export default class MongooseBackend {
         if ('uri' in config) {
             this.mongoose = new Mongoose();
             const { uri, ...mongooseConfig } = config;
-            this.mongoose.connect(uri, mongooseConfig).catch(error => {
-                throw new Error(error);
+            this.mongoose.connect(uri, mongooseConfig).then(() => {
+                this._initDB();
+            }).catch(err => {
+                throw new Error(`Error connecting to MongoDB: ${err}`);
             });
         } else {
             this.mongoose = config;
+            this._initDB();
         }
-        this.mongoose.set({ autoCreate: false, autoIndex: false });
-        this._loadModels();
+    }
+
+    /** 
+     * Return a promise that resolves when the backend is ready to use.
+     */
+    async _isReady(): Promise<boolean> {
+        if (this._isDBInitialized) return Promise.resolve(true);
+        return new Promise((resolve, reject) => {
+            const interval = setInterval(() => {
+                if (this._isDBInitialized) {
+                    clearInterval(interval);
+                    resolve(true);
+                } 
+            }, 100);
+        });
     }
 
     /**
@@ -157,6 +173,7 @@ export default class MongooseBackend {
         wait: number,
         options: DequeueOptions
     ): Promise<DequeuedJob | null> {
+        await this._isReady();
         const job = await this._try(id, options);
         if (job !== null) return job;
 
@@ -194,6 +211,7 @@ export default class MongooseBackend {
         args: any[] = [],
         ids: MinionWorkerId[] = []
     ): Promise<boolean> {
+        await this._isReady();
         const inbox = [command, ...args];
         const match =
             ids.length === 0
@@ -222,6 +240,7 @@ export default class MongooseBackend {
         args: MinionArgs = [],
         options: EnqueueOptions = {}
     ): Promise<MinionJobId> {
+        await this._isReady();
         const mJ = this.mongoose.connection.db.collection('minion_jobs');
         const now = dayjs();
 
@@ -684,7 +703,7 @@ export default class MongooseBackend {
         const status = options.status ?? {};
         const mWorkers = this.mongoose.models.minionWorkers;
 
-        if (!this._isDBInitialized) await this._initDB();
+        await this._isReady();
 
         const worker = await mWorkers.findOneAndUpdate<IMinionWorkers>(
             { _id: this._oid(id) || new Types.ObjectId() },
@@ -723,7 +742,7 @@ export default class MongooseBackend {
         const mWorkers = this.mongoose.models.minionWorkers;
         const mJobs = this.mongoose.models.minionJobs;
 
-        if (!this._isDBInitialized) await this._initDB();
+        await this._isReady();
 
         // Workers without heartbeat
         await mWorkers.deleteMany({
@@ -780,7 +799,7 @@ export default class MongooseBackend {
      * Reset job queue.
      */
     async reset(options: ResetOptions): Promise<void> {
-        if (!this._isDBInitialized) await this._initDB();
+        await this._isReady();
         if (options.all === true)
             for await (const coll of [
                 this.mongoose.models.minionJobs,
@@ -1025,7 +1044,7 @@ export default class MongooseBackend {
     async update(): Promise<void> {
         // Current do nothing. We don't support (and maybe Moongoose 
         // doesnt' need migration code
-        if (!this._isDBInitialized) await this._initDB();
+        await this._isReady();
     }
 
     async _autoRetryJob(
@@ -1116,11 +1135,12 @@ export default class MongooseBackend {
             const mN = db.collection('minion_notifications')
             mN.isCapped().then((isCapped) => {
                 if (!isCapped) {
-                    console.log("Converted to capped");
                     db.command({ "convertToCapped": "minion_notifications", size: 10240, max: 127 });
                 }
             });
         }
+        this.mongoose.set({ autoCreate: false, autoIndex: false });
+        this._loadModels();
         this._isDBInitialized = true;
     }
 
