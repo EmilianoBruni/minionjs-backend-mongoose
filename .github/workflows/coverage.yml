@@ -1,6 +1,6 @@
 name: coverage
-#on: [push, pull_request, workflow_dispatch] # disabled for debug
-on: [workflow_dispatch] # disabled for debug
+on: [push, pull_request, workflow_dispatch] # disabled for debug
+#on: [workflow_dispatch] # disabled for debug
 jobs:
   coveralls:
     runs-on: ubuntu-latest
