@@ -138,30 +138,18 @@ export default class MongooseBackend {
         if ('uri' in config) {
             this.mongoose = new Mongoose();
             const { uri, ...mongooseConfig } = config;
-            this.mongoose.connect(uri, mongooseConfig).then(() => {
-                this._initDB();
-            }).catch(err => {
-                throw new Error(`Error connecting to MongoDB: ${err}`);
-            });
+            this.mongoose
+                .connect(uri, mongooseConfig)
+                .then(() => {
+                    this._initDB();
+                })
+                .catch(err => {
+                    throw new Error(`Error connecting to MongoDB: ${err}`);
+                });
         } else {
             this.mongoose = config;
             this._initDB();
         }
-    }
-
-    /** 
-     * Return a promise that resolves when the backend is ready to use.
-     */
-    async _isReady(): Promise<boolean> {
-        if (this._isDBInitialized) return Promise.resolve(true);
-        return new Promise((resolve, reject) => {
-            const interval = setInterval(() => {
-                if (this._isDBInitialized) {
-                    clearInterval(interval);
-                    resolve(true);
-                } 
-            }, 100);
-        });
     }
 
     /**
@@ -187,12 +175,12 @@ export default class MongooseBackend {
             await Promise.race([newJob.next(), timeoutPromise]);
         } else {
             const notification = this.mongoose.models.minionNotifications;
-            const notify = notification.find(
-                {
+            const notify = notification
+                .find({
                     createdAt: { $gte: dayjs().toDate() },
                     queue: { $in: options.queues ?? ['default'] }
-                }
-            ).tailable();
+                })
+                .tailable();
             const cursor = notify.cursor();
             await Promise.race([cursor.next(), timeoutPromise]);
             // should clear cursor
@@ -229,6 +217,9 @@ export default class MongooseBackend {
      * Stop using the queue.
      */
     async end(): Promise<void> {
+        await this._isReady();
+        // check if mongoose is connected
+        if (this.mongoose.connection.readyState !== 1) return;
         await this.mongoose.disconnect();
     }
 
@@ -270,7 +261,7 @@ export default class MongooseBackend {
             //const notification = await this.notificationCollection();
             const notification = new this.mongoose.models.minionNotifications({
                 c: 'created',
-                queue: job.queue ?? 'default',
+                queue: job.queue ?? 'default'
             });
             await notification.save();
         }
@@ -660,8 +651,8 @@ export default class MongooseBackend {
         const key: setOrNotSet = { toSet: {}, toUnset: {} };
         Object.keys(merge).forEach(
             (k: string) =>
-            (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
-                merge[k])
+                (key[merge[k] === null ? 'toUnset' : 'toSet'][`notes.${k}`] =
+                    merge[k])
         );
 
         const result = await this.mongoose.models.minionJobs.updateOne(
@@ -700,10 +691,10 @@ export default class MongooseBackend {
         id?: MinionWorkerId,
         options: RegisterWorkerOptions = {}
     ): Promise<MinionWorkerId> {
+        await this._isReady();
+
         const status = options.status ?? {};
         const mWorkers = this.mongoose.models.minionWorkers;
-
-        await this._isReady();
 
         const worker = await mWorkers.findOneAndUpdate<IMinionWorkers>(
             { _id: this._oid(id) || new Types.ObjectId() },
@@ -1042,7 +1033,7 @@ export default class MongooseBackend {
      * Update database schema to latest version.
      */
     async update(): Promise<void> {
-        // Current do nothing. We don't support (and maybe Moongoose 
+        // Current do nothing. We don't support (and maybe Moongoose
         // doesnt' need migration code
         await this._isReady();
     }
@@ -1061,26 +1052,29 @@ export default class MongooseBackend {
     }
 
     _loadModels() {
-        [minionJobsSchema, minionLocksSchema, minionWorkersSchema, minionNotificationsSchema].forEach(
-            model => {
-                const schema = new this.mongoose.Schema(model.schema, {
-                    collection: model.name,
-                    ...model.options
+        [
+            minionJobsSchema,
+            minionLocksSchema,
+            minionWorkersSchema,
+            minionNotificationsSchema
+        ].forEach(model => {
+            const schema = new this.mongoose.Schema(model.schema, {
+                collection: model.name,
+                ...model.options
+            });
+            // add virtual id to match id request of minion module
+            // as number
+            schema
+                .virtual('id')
+                .get(function () {
+                    /* @ts-ignore:enable */
+                    return this._id.toString();
+                })
+                .set(function (v) {
+                    this._id = new Types.ObjectId(v);
                 });
-                // add virtual id to match id request of minion module
-                // as number
-                schema
-                    .virtual('id')
-                    .get(function () {
-                        /* @ts-ignore:enable */
-                        return this._id.toString();
-                    })
-                    .set(function (v) {
-                        this._id = new Types.ObjectId(v);
-                    });
-                this.mongoose.model(model.alias, schema);
-            }
-        );
+            this.mongoose.model(model.alias, schema);
+        });
     }
 
     async _initDB() {
@@ -1123,11 +1117,13 @@ export default class MongooseBackend {
             );
             await this.mongoose.models.minionLocks.ensureIndexes();
         }
-        // this is a workaround because actually mongoose doesn't create capped 
+        // this is a workaround because actually mongoose doesn't create capped
         // collection. I don't know why
         if (!this._underReplicaSet) {
             const db = this.mongoose.connection.db;
-            coll = await db.listCollections({ name: 'minion_notifications' }).next();
+            coll = await db
+                .listCollections({ name: 'minion_notifications' })
+                .next();
             if (coll === null) {
                 this.mongoose.models.minionNotifications.schema.index(
                     { createdAt: -1 },
@@ -1135,14 +1131,41 @@ export default class MongooseBackend {
                 );
                 await this.mongoose.models.minionNotifications.ensureIndexes();
             }
-            const mN = db.collection('minion_notifications')
-            mN.isCapped().then((isCapped) => {
+            const mN = db.collection('minion_notifications');
+            mN.isCapped().then(isCapped => {
                 if (!isCapped) {
-                    db.command({ "convertToCapped": "minion_notifications", size: 10240, max: 127 });
+                    db.command({
+                        convertToCapped: 'minion_notifications',
+                        size: 10240,
+                        max: 127
+                    });
                 }
             });
         }
         this._isDBInitialized = true;
+    }
+
+    /**
+     * Return a promise that resolves when the backend is ready to use.
+     */
+    async _isReady(): Promise<boolean> {
+        if (this._isDBInitialized) return Promise.resolve(true);
+        let interval: NodeJS.Timeout | string | number | undefined;
+        let timeout: NodeJS.Timeout | string | number | undefined;
+        const pCheckDBInitialized = new Promise<boolean>((resolve, reject) => {
+            interval = setInterval(() => {
+                if (this._isDBInitialized) resolve(true);
+            }, 100);
+        });
+        const pTimeout = new Promise<boolean>((resolve, reject) => {
+            timeout = setTimeout(() => resolve(false), 5000);
+        });
+
+        return Promise.race([pCheckDBInitialized, pTimeout]).then(res => {
+            clearInterval(interval);
+            clearTimeout(timeout);
+            return res;
+        });
     }
 
     _oid(oidString: string | undefined): Types.ObjectId | undefined {
