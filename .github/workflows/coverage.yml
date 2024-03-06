@@ -28,7 +28,7 @@ jobs:
           TEST_ONLINE: mongodb://localhost:27017/test
 
       - name: coveralls
-        uses: coverallsapp/github-action@master
+        uses: coverallsapp/github-action@v2
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
         with:
