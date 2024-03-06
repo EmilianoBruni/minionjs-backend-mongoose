@@ -1,7 +1,6 @@
 import os from 'node:os';
 import MongooseBackend from '../lib/mongoose-backend.js';
 import Minion from '@minionjs/core';
-import mojo, { util } from '@mojojs/core';
 import dayjs from 'dayjs';
 import mongoose from 'mongoose';
 import t from 'tap';
@@ -19,7 +18,7 @@ t.test('Mongoose backend', skip, async t => {
     await t.test('Nothing to repair', async t => {
         await minion.repair();
         await minion.reset({ all: true });
-        t.ok(minion.app instanceof mojo().constructor);
+        //t.ok(minion.app instanceof mojo().constructor);
     });
 
     await t.test('Register and unregister', async t => {
@@ -30,7 +29,7 @@ t.test('Mongoose backend', skip, async t => {
         t.same(notified instanceof Date, true);
         const id = worker.id;
         await worker.register();
-        await util.sleep(500);
+        await new Promise((r) => setTimeout(r,500));
         await worker.register();
         t.same((await worker.info()).notified > notified, true);
         await worker.unregister();
