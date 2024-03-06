@@ -17,8 +17,10 @@
     "prepublishOnly": "npm run build:clean",
     "publish:minor": "npm version minor && npm publish",
     "publish:patch": "npm version patch && npm publish",
-    "test": "tap -j1 --allow-incomplete-coverage test/*.js",
-    "test:ci": "npm run prepublishOnly && npm run test",
+    "test": "tap -j1 --allow-incomplete-coverage \"./test/**/*.test.?(c)[tj]s\"",
+    "test:coverage": "tap --coverage-report=lcov-only --allow-empty-coverage \"./test/**/*.test.?(c)[tj]s\"",
+    "test:workflow:build": "npm run prepublishOnly && npm run test",
+    "test:workflow:coverage": "npm run prepublishOnly && npm run test:coverage",
     "test:debug": "npm run test -- --timeout=0"
   },
   "keywords": [
