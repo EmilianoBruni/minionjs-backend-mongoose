@@ -122,7 +122,7 @@ export interface IMinionNotifications {
     queue: string;
     createdAt: Date;
     updatedAt: Date;
-};
+}
 
 export const minionNotificationsSchema: MongooseSchema = {
     name: 'minion_notifications',
@@ -133,7 +133,11 @@ export const minionNotificationsSchema: MongooseSchema = {
         capped: { size: 1024, max: 1000, autoIndexId: true }
     },
     schema: {
-        c: { type: String, enum: ['created', 'updated', 'deleted'], required: true },
-        queue: { type: String, required: false, default: 'default'},
+        c: {
+            type: String,
+            enum: ['created', 'updated', 'deleted'],
+            required: true
+        },
+        queue: { type: String, required: false, default: 'default' }
     }
 };
