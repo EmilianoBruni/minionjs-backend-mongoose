@@ -2,7 +2,7 @@
 
 [![npm package](https://img.shields.io/npm/v/minionjs-backend-mongoose.svg)](http://npmjs.org/package/minionjs-backend-mongoose)
 [![Build workflow](https://github.com/EmilianoBruni/minionjs-backend-mongoose/actions/workflows/build.yml/badge.svg)](https://github.com/EmilianoBruni/minionjs-backend-mongoose/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/EmilianoBruni//badge.svg?branch=master)](https://coveralls.io/github/EmilianoBruni/minionjs-backend-mongoose?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/EmilianoBruni/minionjs-backend-mongoose/badge.svg)](https://coveralls.io/github/EmilianoBruni/minionjs-backend-mongoose)
 ![Last Commit](https://img.shields.io/github/last-commit/EmilianoBruni/minionjs-backend-mongoose)
 ![Dependencies](https://img.shields.io/librariesio/github/EmilianoBruni/minionjs-backend-mongoose)
 ![Downloads](https://img.shields.io/npm/dt/minionjs-backend-mongoose)
