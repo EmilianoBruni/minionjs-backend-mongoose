@@ -18,7 +18,7 @@
     "publish:minor": "npm version minor && npm publish",
     "publish:patch": "npm version patch && npm publish",
     "test": "tap -j1 --allow-incomplete-coverage \"./test/**/*.test.?(c)[tj]s\"",
-    "test:coverage": "tap -j1 --coverage-report=lcov-only --allow-empty-coverage \"./test/**/*.test.?(c)[tj]s\"",
+    "test:coverage": "tap -j1 --coverage-report=lcovonly --allow-empty-coverage \"./test/**/*.test.?(c)[tj]s\"",
     "test:workflow:build": "npm run prepublishOnly && npm run test",
     "test:workflow:coverage": "npm run prepublishOnly && npm run test:coverage",
     "test:debug": "npm run test -- --timeout=0"
