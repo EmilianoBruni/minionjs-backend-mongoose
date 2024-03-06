@@ -62,6 +62,7 @@
   },
   "dependencies": {
     "@minionjs/core": "^0.3.13",
+    "c8": "^9.1.0",
     "dayjs": "^1.11.10",
     "mongoose": "^8.2.1",
     "rimraf": "^5.0.5"
