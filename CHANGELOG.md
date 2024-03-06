@@ -3,11 +3,12 @@
 _A Mongoose Backend written in Typescript/ES6 for minion.js, a high performance job queue for Node.js_
 
 
-## [0.1.2] Unreleased
+## [0.1.2] 2024-03-06
 
 ### Fix
 
 - Fix some errors in connection and disconnection
+- Fix dependences
 
 ## [0.1.1] 2024-03-04
 
