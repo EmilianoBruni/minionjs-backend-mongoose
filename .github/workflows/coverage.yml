@@ -1,0 +1,28 @@
+name: coverage
+#on: [push, pull_request, workflow_dispatch] # disabled for debug
+on: [workflow_dispatch] # disabled for debug
+jobs:
+  coveralls:
+    runs-on: ubuntu-latest
+    environment: COVERALLS
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: 18
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.10.0
+        with:
+          mongodb-version: 4.4
+      - name: npm install
+        run: npm i
+      - name: npm run test:workflow:coverage
+        run: npm run test:workflow:coverage
+        env:
+          TEST_ONLINE: mongodb://localhost:27017/test
+      - name: coveralls
+        uses: coverallsapp/github-action@master
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
