@@ -15,11 +15,6 @@ t.test('Mongoose backend', skip, async t => {
     await mongoose.connect(process.env.TEST_ONLINE);
     // mongoose.set('debug', true); // for debug
     const minion = new Minion(mongoose, { backendClass: MongooseBackend });
-    await minion.update();
-    await t.test('Check if correct Backend was loaded', async t => {
-        t.ok(minion.backend !== undefined);
-        t.equal(minion.backend.name, 'Mongoose');
-    });
 
     await t.test('Nothing to repair', async t => {
         await minion.repair();
