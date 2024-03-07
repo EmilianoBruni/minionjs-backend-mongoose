@@ -65,7 +65,7 @@ process.on('SIGINT', async () => {
 Or using [mojo.js](https://github.com/mojolicious/mojo.js) framework and typescript
 
 ```typescript
-/ node script.js minion-worker -j 12
+// node script.js minion-worker -j 12
 // to start a worker to perform up to 12 jobs concurrently
 
 import { minionPlugin } from '@minionjs/core';
