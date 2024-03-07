@@ -15,7 +15,7 @@ t.test('Mongoose backend', skip, async t => {
     // mongoose.set('debug', true); // for debug
     const minion = new Minion(mongoose, { backendClass: MongooseBackend });
 
-    await t.test('Nothing to repair', async t => {
+    await t.test('Nothing to repair', async () => {
         await minion.repair();
         await minion.reset({ all: true });
         //t.ok(minion.app instanceof mojo().constructor);
@@ -29,7 +29,7 @@ t.test('Mongoose backend', skip, async t => {
         t.same(notified instanceof Date, true);
         const id = worker.id;
         await worker.register();
-        await new Promise((r) => setTimeout(r,500));
+        await new Promise(r => setTimeout(r, 500));
         await worker.register();
         t.same((await worker.info()).notified > notified, true);
         await worker.unregister();
