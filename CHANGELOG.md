@@ -2,6 +2,11 @@
 
 _A Mongoose Backend written in Typescript/ES6 for minion.js, a high performance job queue for Node.js_
 
+## [0.1.3] Unreleased
+
+### Fix
+
+- Dequeue algorith doesn't works well if document are never enqueued. Fixed.
 
 ## [0.1.2] 2024-03-06
 
