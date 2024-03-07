@@ -172,7 +172,13 @@ export default class MongooseBackend {
         if (this._isReplicaSet()) {
             // TODO: reduce filter to match only new Job for this queue
             const newJob = this.mongoose.models.minionJobs.watch([]);
-            await Promise.race([newJob.next(), timeoutPromise]);
+            try {
+                await Promise.race([newJob.next(), timeoutPromise]);
+            } catch (err) {
+                // ignore error. maybe connection has been closed
+                clearTimeout(timer);
+                return null;
+            }
         } else {
             const notification = this.mongoose.models.minionNotifications;
             const notify = notification
@@ -182,7 +188,14 @@ export default class MongooseBackend {
                 })
                 .tailable();
             const cursor = notify.cursor();
-            await Promise.race([cursor.next(), timeoutPromise]);
+            try {
+                await Promise.race([cursor.next(), timeoutPromise]);
+            } catch (err) {
+                // ignore error. maybe connection has been closed
+                clearTimeout(timer);
+                return null;
+            }
+
             // should clear cursor
             cursor.close();
         }
@@ -1024,6 +1037,7 @@ export default class MongooseBackend {
      * Unregister worker.
      */
     async unregisterWorker(id: MinionWorkerId): Promise<void> {
+        if (this.mongoose.connection.readyState !== 1) return;
         await this.mongoose.models.minionWorkers.deleteOne({
             _id: this._oid(id)
         });
@@ -1208,6 +1222,7 @@ export default class MongooseBackend {
 
         let retJob: DequeuedJob | null = null;
         while (retJob === null) {
+            if (this.mongoose.connection.readyState !== 1) break;
             // find candidate document and optimistic locking
             const job = await mJ.findOneAndUpdate<IMinionJobs>(
                 match,
@@ -1236,7 +1251,7 @@ export default class MongooseBackend {
             }
         }
 
-        if (retJob === null) {
+        if (retJob === null && this.mongoose.connection.readyState === 1) {
             // didn't find a valid candidate, remove locks
             await mJ.updateMany(
                 { _id: { $in: lockedJobs } },
