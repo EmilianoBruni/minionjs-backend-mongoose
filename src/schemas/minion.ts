@@ -135,7 +135,7 @@ export const minionNotificationsSchema: MongooseSchema = {
     schema: {
         c: {
             type: String,
-            enum: ['created', 'updated', 'deleted'],
+            enum: ['init', 'created', 'updated', 'deleted'],
             required: true
         },
         queue: { type: String, required: false, default: 'default' }
