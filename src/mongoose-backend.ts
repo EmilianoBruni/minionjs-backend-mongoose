@@ -14,7 +14,7 @@ import type {
     RetryOptions,
     WorkerList
 } from '@minionjs/core/lib/types';
-import type { MongooseOptions, QueryWithHelpers, FilterQuery } from 'mongoose';
+import type { MongooseOptions, FilterQuery } from 'mongoose';
 import os from 'node:os';
 import {
     minionJobsSchema,
@@ -1078,58 +1078,60 @@ export default class MongooseBackend {
     }
 
     async _initDB() {
-        this.mongoose.set({ autoCreate: false, autoIndex: false });
+        const moo = this.mongoose;
+        moo.set({ autoCreate: false, autoIndex: false });
         this._loadModels();
 
-        let coll = await this.mongoose.connection.db
+        let coll = await moo.connection.db
             .listCollections({ name: 'minion_jobs' })
             .next();
         if (coll === null) {
-            this.mongoose.models.minionJobs.schema.index(
+            moo.models.minionJobs.schema.index(
                 { finished: 1 },
                 { background: true }
             );
-            this.mongoose.models.minionJobs.schema.index(
+            moo.models.minionJobs.schema.index(
                 { state: 1, priority: -1, _id: 1 },
                 { background: true }
             );
-            this.mongoose.models.minionJobs.schema.index(
+            moo.models.minionJobs.schema.index(
                 { parents: 1 },
                 { background: true }
             );
-            this.mongoose.models.minionJobs.schema.index(
+            moo.models.minionJobs.schema.index(
                 { notes: 1 },
                 { background: true }
             );
-            this.mongoose.models.minionJobs.schema.index(
+            moo.models.minionJobs.schema.index(
                 { expires: 1 },
                 { background: true }
             );
-            await this.mongoose.models.minionJobs.ensureIndexes();
+            await moo.models.minionJobs.ensureIndexes();
         }
-        coll = await this.mongoose.connection.db
+        coll = await moo.connection.db
             .listCollections({ name: 'minion_locks' })
             .next();
         if (coll === null) {
-            this.mongoose.models.minionLocks.schema.index(
+            moo.models.minionLocks.schema.index(
                 { name: 1, expires: -1 },
                 { background: true }
             );
-            await this.mongoose.models.minionLocks.ensureIndexes();
+            await moo.models.minionLocks.ensureIndexes();
         }
         // this is a workaround because actually mongoose doesn't create capped
         // collection. I don't know why
         if (!this._underReplicaSet) {
-            const db = this.mongoose.connection.db;
+            const db = moo.connection.db;
+            const mmN = moo.models.minionNotifications;
             coll = await db
                 .listCollections({ name: 'minion_notifications' })
                 .next();
             if (coll === null) {
-                this.mongoose.models.minionNotifications.schema.index(
-                    { createdAt: -1 },
-                    { background: true }
-                );
-                await this.mongoose.models.minionNotifications.ensureIndexes();
+                mmN.schema.index({ createdAt: -1 }, { background: true });
+                await mmN.ensureIndexes();
+                // tailable cursor doesn't work if collection is empty
+                // so we insert a dummy document
+                const notification = new mmN({ c: 'init' });
             }
             const mN = db.collection('minion_notifications');
             mN.isCapped().then(isCapped => {
