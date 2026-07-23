@@ -1,0 +1,8 @@
+// this file is used for build dist. It excludes test files and sets rootDir to src, so that the output structure in dist is the same as in src.
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "./src"
+    },
+    "exclude": ["test"]
+}
