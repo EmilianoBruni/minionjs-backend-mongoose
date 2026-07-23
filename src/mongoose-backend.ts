@@ -982,6 +982,8 @@ export default class MongooseBackend {
 
         // if user doesn't have admin authorization. Server uptime missing
         let uptime;
+        if (!moo.connection.db)
+            throw new Error('Database connection is not established');
         try {
             const ss = await moo.connection.db.command({
                 iserverStatus: 1,
@@ -1117,6 +1119,8 @@ export default class MongooseBackend {
         const moo = this.mongoose;
         moo.set({ autoCreate: false, autoIndex: false });
         this._loadModels();
+        if (!moo.connection.db)
+            throw new Error('Database connection is not established');
 
         let coll = await moo.connection.db
             .listCollections({ name: 'minion_jobs' })
@@ -1167,7 +1171,7 @@ export default class MongooseBackend {
                 await mmN.ensureIndexes();
                 // tailable cursor doesn't work if collection is empty
                 // so we insert a dummy document
-                const notification = new mmN({ c: 'init' });
+                new mmN({ c: 'init' });
             }
             const mN = db.collection('minion_notifications');
             mN.isCapped().then(isCapped => {
@@ -1190,12 +1194,12 @@ export default class MongooseBackend {
         if (this._isDBInitialized) return Promise.resolve(true);
         let interval: NodeJS.Timeout | string | number | undefined;
         let timeout: NodeJS.Timeout | string | number | undefined;
-        const pCheckDBInitialized = new Promise<boolean>((resolve, reject) => {
+        const pCheckDBInitialized = new Promise<boolean>(resolve => {
             interval = setInterval(() => {
                 if (this._isDBInitialized) resolve(true);
             }, 100);
         });
-        const pTimeout = new Promise<boolean>((resolve, reject) => {
+        const pTimeout = new Promise<boolean>(resolve => {
             timeout = setTimeout(() => resolve(false), 5000);
         });
 
@@ -1291,6 +1295,8 @@ export default class MongooseBackend {
         lockedJobs: Types.ObjectId[]
     ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
+        if (!this.mongoose.connection.db)
+            throw new Error('Database connection is not established');
         const mJ =
             this.mongoose.connection.db.collection<IMinionJobs>('minion_jobs');
 
