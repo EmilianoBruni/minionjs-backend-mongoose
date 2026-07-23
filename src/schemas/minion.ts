@@ -1,8 +1,11 @@
-import type { MinionStates } from '@minionjs/core/lib/types';
-import type {
-    JobInfo as JobInfoMinion,
-    MinionArgs
-} from '@minionjs/core/lib/types';
+// import type { MinionStates } from '@minionjs/core/lib/types';
+// import type {
+//     JobInfo as JobInfoMinion,
+//     MinionArgs
+// } from '@minionjs/core/lib/types';
+
+import type { MinionJob } from '@minionjs/core';
+
 import type { Types } from 'mongoose';
 import { Schema } from 'mongoose';
 
@@ -12,6 +15,10 @@ export interface MongooseSchema {
     options: object;
     schema: object;
 }
+
+export type MinionStates = NonNullable<
+    Awaited<ReturnType<MinionJob['info']>>
+>['state'];
 
 export interface IMinionJobs {
     _id: Types.ObjectId;
@@ -149,9 +156,9 @@ export const minionNotificationsSchema: MongooseSchema = {
 // redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
 
 export type MinionJobId = string; // better definition for hex{24}
-export type MinionJobIdDb = Types.ObjectId;
+export type MinionJobOid = Types.ObjectId;
 export type MinionWorkerId = MinionJobId;
-export type MinionWorkerIdDb = MinionJobIdDb;
+export type MinionWorkerOId = MinionJobOid;
 
 export interface JobInfo extends Omit<
     JobInfoMinion,

@@ -5,19 +5,19 @@ import type {
     JobListDb
 } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
-import type {
-    DailyHistory,
-    ListLocksOptions,
-    LockOptions,
-    LockList,
-    MinionArgs,
-    MinionHistory,
-    MinionStats,
-    RegisterWorkerOptions,
-    ResetOptions,
-    RetryOptions,
-    WorkerList
-} from '@minionjs/core/lib/types';
+// import {
+//     DailyHistory,
+//     ListLocksOptions,
+//     LockOptions,
+//     LockList,
+//     MinionArgs,
+//     MinionHistory,
+//     MinionStats,
+//     RegisterWorkerOptions,
+//     ResetOptions,
+//     RetryOptions,
+//     WorkerList
+// } from '@minionjs/core';
 import type { MongooseOptions, FilterQuery } from 'mongoose';
 import os from 'node:os';
 import {
@@ -29,48 +29,45 @@ import {
 import dayjs from 'dayjs';
 import { Types, Mongoose } from 'mongoose';
 
-export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
-export type MinionWorkerId = string;
-export type MinionJobId = string | undefined;
-export type MinionJobOid = Types.ObjectId;
+// export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 
-export interface ListWorkersOptions {
-    before?: string;
-    ids?: MinionWorkerId[];
-}
+// export interface ListWorkersOptions {
+//     before?: string;
+//     ids?: MinionWorkerId[];
+// }
 
-export interface ListJobsOptions {
-    before?: string;
-    ids?: MinionJobId[];
-    notes?: string[];
-    queues?: string[];
-    states?: MinionStates[];
-    tasks?: string[];
-}
+// export interface ListJobsOptions {
+//     before?: string;
+//     ids?: MinionJobId[];
+//     notes?: string[];
+//     queues?: string[];
+//     states?: MinionStates[];
+//     tasks?: string[];
+// }
 
-export interface EnqueueOptions {
-    attempts?: number;
-    delay?: number;
-    expire?: number;
-    lax?: boolean;
-    notes?: Record<string, any>;
-    parents?: string[];
-    priority?: number;
-    queue?: string;
-}
+// export interface EnqueueOptions {
+//     attempts?: number;
+//     delay?: number;
+//     expire?: number;
+//     lax?: boolean;
+//     notes?: Record<string, any>;
+//     parents?: string[];
+//     priority?: number;
+//     queue?: string;
+// }
 
-export interface DequeuedJob {
-    id: MinionJobId;
-    args: MinionArgs;
-    retries: number;
-    task: string;
-}
+// export interface DequeuedJob {
+//     id: MinionJobId;
+//     args: MinionArgs;
+//     retries: number;
+//     task: string;
+// }
 
-export interface DequeueOptions {
-    id?: MinionJobId;
-    minPriority?: number;
-    queues?: string[];
-}
+// export interface DequeueOptions {
+//     id?: MinionJobId;
+//     minPriority?: number;
+//     queues?: string[];
+// }
 
 interface ConnectOptions extends MongooseOptions {
     /** Uri string  */
