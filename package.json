@@ -1,68 +1,70 @@
 {
-  "name": "minionjs-backend-mongoose",
-  "description": "A Mongoose backend for minion.js",
-  "version": "0.1.3",
-  "main": "lib/mongoose-backend.js",
-  "scripts": {
-    "build": "npx tsc --build ./",
-    "build:clean": "npm run clean && npm run build",
-    "build:coverage": "npm run build && npm run coverage",
-    "build:lint": "npm run build && npm run lint",
-    "build:node": "npm run build && node",
-    "build:test": "npm run build && npm test",
-    "build:watch": "npm run build -- --watch",
-    "clean": "rm -rf tsconfig.tsbuildinfo lib && rimraf ./lib",
-    "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\" \"examples/*.js\"",
-    "lint:fix": "npm run lint -- --fix",
-    "prepublishOnly": "npm run build:clean",
-    "publish:minor": "npm version minor && npm publish",
-    "publish:patch": "npm version patch && npm publish",
-    "test": "tap -j1 --allow-incomplete-coverage \"./test/**/*.test.?(c)[tj]s\"",
-    "test:coverage": "tap -j1 --coverage-report=lcovonly --allow-incomplete-coverage --allow-empty-coverage \"./test/**/*.test.?(c)[tj]s\"",
-    "test:workflow:build": "npm run prepublishOnly && npm run test",
-    "test:workflow:coverage": "npm run prepublishOnly && npm run test:coverage",
-    "test:debug": "npm run test -- --timeout=0"
-  },
-  "keywords": [
-    "mongoose",
-    "backend",
-    "job-queue",
-    "typescript",
-    "node",
-    "nodejs"
-  ],
-  "author": "Emiliano Bruni  <info@ebruni.it>",
-  "license": "GPL-3.0-or-later",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/EmilianoBruni/minionjs-backend-mongoose.git"
-  },
-  "bugs": {
-    "url": "https://github.com/EmilianoBruni/minionjs-backend-mongoose/issues"
-  },
-  "type": "module",
-  "types": "lib/types/mongoose-backend.d.ts",
-  "files": [
-    "lib/"
-  ],
-  "homepage": "https://github.com/EmilianoBruni/minionjs-backend-mongoose#readme",
-  "devDependencies": {
-    "@types/node": "^26.1.1",
-    "@typescript-eslint/eslint-plugin": "^8.65.0",
-    "@typescript-eslint/parser": "^8.65.0",
-    "eslint": "^10.7.0",
-    "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-import": "^2.32.0",
-    "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-prettier": "^5.5.6",
-    "prettier": "^3.9.6",
-    "tap": "^21.7.4",
-    "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "@minionjs/core": "^1.0.1",
-    "dayjs": "^1.11.21",
-    "mongoose": "^9.8.0",
-    "rimraf": "^6.1.3"
-  }
+    "name": "minionjs-backend-mongoose",
+    "description": "A Mongoose backend for minion.js",
+    "version": "0.1.3",
+    "main": "lib/mongoose-backend.js",
+    "scripts": {
+        "build": "pnpm tsc",
+        "build:clean": "pnpm clean && pnpm build",
+        "build:coverage": "pnpm build && pnpm coverage",
+        "build:lint": "pnpm build && pnpm lint",
+        "build:node": "pnpm build && node",
+        "build:test": "pnpm build && pnpm test",
+        "build:watch": "pnpm build -- --watch",
+        "clean": "rimraf ./dist .tap tsconfig.tsbuildinfo",
+        "lint": "eslint \"test/*.js\" \"src/**/*.ts\" \"src/*.ts\" \"examples/*.js\"",
+        "lint:fix": "pnpm lint -- --fix",
+        "prepublishOnly": "pnpm build:clean",
+        "publish:minor": "pnpm version minor && pnpm publish",
+        "publish:patch": "pnpm version patch && pnpm publish",
+        "test": "tap -j1 --allow-incomplete-coverage \"./test/**/*.test.?(c)[tj]s\"",
+        "test:coverage": "tap -j1 --coverage-report=lcovonly --allow-incomplete-coverage --allow-empty-coverage \"./test/**/*.test.?(c)[tj]s\"",
+        "test:workflow:build": "pnpm prepublishOnly && pnpm test",
+        "test:workflow:coverage": "pnpm prepublishOnly && pnpm test:coverage",
+        "test:debug": "pnpm test -- --timeout=0",
+        "tsc": "tsc -p tsconfig.build.json"
+    },
+    "keywords": [
+        "mongoose",
+        "backend",
+        "job-queue",
+        "typescript",
+        "node",
+        "nodejs"
+    ],
+    "author": "Emiliano Bruni  <info@ebruni.it>",
+    "license": "GPL-3.0-or-later",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/EmilianoBruni/minionjs-backend-mongoose.git"
+    },
+    "bugs": {
+        "url": "https://github.com/EmilianoBruni/minionjs-backend-mongoose/issues"
+    },
+    "type": "module",
+    "types": "lib/types/mongoose-backend.d.ts",
+    "files": [
+        "lib/"
+    ],
+    "homepage": "https://github.com/EmilianoBruni/minionjs-backend-mongoose#readme",
+    "devDependencies": {
+        "@types/node": "^26.1.1",
+        "@typescript-eslint/eslint-plugin": "^8.65.0",
+        "@typescript-eslint/parser": "^8.65.0",
+        "eslint": "^10.7.0",
+        "eslint-config-prettier": "^10.1.8",
+        "eslint-plugin-import": "^2.32.0",
+        "eslint-plugin-node": "^11.1.0",
+        "eslint-plugin-prettier": "^5.5.6",
+        "prettier": "^3.9.6",
+        "tap": "^21.7.4",
+        "typescript": "^7.0.2"
+    },
+    "dependencies": {
+        "@minionjs/core": "^1.0.1",
+        "@tsconfig/node20": "^20.1.9",
+        "dayjs": "^1.11.21",
+        "mongoose": "^9.8.0",
+        "rimraf": "^6.1.3"
+    }
 }
