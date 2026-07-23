@@ -1,8 +1,12 @@
-import type { IMinionJobs, IMinionWorkers } from './schemas/minion.js';
+import type {
+    IMinionJobs,
+    IMinionWorkers,
+    JobList,
+    JobListDb
+} from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 import type {
     DailyHistory,
-    JobList,
     ListLocksOptions,
     LockOptions,
     LockList,
@@ -245,7 +249,7 @@ export default class MongooseBackend {
         options: EnqueueOptions = {}
     ): Promise<MinionJobId> {
         await this._isReady();
-        const mJ = this.mongoose.connection.db.collection('minion_jobs');
+        const mJ = this.mongoose.connection.db!.collection('minion_jobs');
         const now = dayjs();
 
         const job: IMinionJobs = {
@@ -404,7 +408,7 @@ export default class MongooseBackend {
         options: ListJobsOptions = {}
     ): Promise<JobList> {
         const mJ = this.mongoose.models.minionJobs;
-        const results = mJ.aggregate<JobList>();
+        const results = mJ.aggregate<JobListDb>();
         if (options.ids !== undefined)
             results.match({
                 _id: {
@@ -465,7 +469,7 @@ export default class MongooseBackend {
 
         results.facet({
             total: [{ $count: 'count' }],
-            /* @ts-ignore:enable */
+            /* @ts-expect-error wrong type */
             documents: facetPipeLine.pipeline()
         });
 
@@ -480,27 +484,45 @@ export default class MongooseBackend {
             jobs: '$documents'
         });
 
-        const jobs = (await results.exec())[0];
+        const jobsDB = (await results.exec())[0];
 
-        if (jobs.jobs.length > 0) {
-            jobs.jobs.forEach(job => {
+        // jobs is jobsDB without parents field
+        const jobs: JobList = {
+            jobs: jobsDB.jobs.map(({ worker, id, _id, parents, ...rest }) => ({
+                ...rest,
+                id: _id.toHexString(),
+                worker: worker?.toHexString() ?? '',
+                parents: [],
+                children: [],
+                time: Math.floor(Date.now() / 1000)
+            })),
+            total: jobsDB.total
+        };
+
+        if (jobsDB.jobs.length > 0) {
+            jobsDB.jobs.forEach(job => {
                 // convert parents as an array of id
-                if (job.parents.length > 0) {
-                    const parents: number[] = [];
+                if (job.parents && job.parents.length > 0) {
+                    const parents: string[] = [];
                     job.parents.forEach(parent => {
-                        /* @ts-ignore:enable */
                         parents.push(parent._id.toString());
                     });
-                    job.parents = parents;
+                    // find jobs.jobs and set parents as an array of id
+                    const jobToUpdate = jobs.jobs.find(
+                        j => j.id === job._id.toString()
+                    );
+                    if (jobToUpdate) jobToUpdate.parents = parents;
                 }
                 // children is an array of id
                 if (job.children.length > 0) {
-                    const childrens: number[] = [];
+                    const childrens: string[] = [];
                     job.children.forEach(children => {
-                        /* @ts-ignore:enable */
                         childrens.push(children._id.toString());
                     });
-                    job.children = childrens;
+                    const jobToUpdate = jobs.jobs.find(
+                        j => j.id === job._id.toString()
+                    );
+                    if (jobToUpdate) jobToUpdate.children = childrens;
                 }
             });
         }

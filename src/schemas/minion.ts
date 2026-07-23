@@ -1,4 +1,8 @@
 import type { MinionStates } from '@minionjs/core/lib/types';
+import type {
+    JobInfo as JobInfoMinion,
+    MinionArgs
+} from '@minionjs/core/lib/types';
 import type { Types } from 'mongoose';
 import { Schema } from 'mongoose';
 
@@ -10,23 +14,23 @@ export interface MongooseSchema {
 }
 
 export interface IMinionJobs {
-    _id?: Types.ObjectId;
+    _id: Types.ObjectId;
     id?: Types.ObjectId;
     args: any[];
-    attempts?: number;
-    created?: Date;
+    attempts: number;
+    created: Date;
     delayed: Date;
     expires?: Date;
     finished?: Date;
     notes?: any;
-    parents?: Types.ObjectId[];
+    parents: Types.ObjectId[];
     priority: number;
-    queue?: string;
+    queue: string;
     result?: any;
     retried?: Date;
     retries?: number;
     started?: Date;
-    state?: MinionStates;
+    state: MinionStates;
     task: string;
     worker?: Types.ObjectId;
     lax?: boolean;
@@ -141,3 +145,30 @@ export const minionNotificationsSchema: MongooseSchema = {
         queue: { type: String, required: false, default: 'default' }
     }
 };
+
+// redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
+
+export type MinionJobId = string; // better definition for hex{24}
+export type MinionJobIdDb = Types.ObjectId;
+export type MinionWorkerId = MinionJobId;
+export type MinionWorkerIdDb = MinionJobIdDb;
+
+export interface JobInfo extends Omit<
+    JobInfoMinion,
+    'id' | 'children' | 'parents' | 'worker'
+> {
+    children: MinionJobId[];
+    id: MinionJobId;
+    parents: MinionJobId[];
+    worker: MinionWorkerId;
+}
+
+export interface JobList {
+    jobs: JobInfo[];
+    total: number;
+}
+
+export interface JobListDb {
+    jobs: IMinionJobs[];
+    total: number;
+}
