@@ -1,10 +1,5 @@
-// import type { MinionStates } from '@minionjs/core/lib/types';
-// import type {
-//     JobInfo as JobInfoMinion,
-//     MinionArgs
-// } from '@minionjs/core/lib/types';
-
 import type { MinionJob } from '@minionjs/core';
+import Minion from '@minionjs/core';
 
 import type { Types } from 'mongoose';
 import { Schema } from 'mongoose';
@@ -16,11 +11,72 @@ export interface MongooseSchema {
     schema: object;
 }
 
+// Retrive base Minion typed
+
+export type JobInfoMinion = Awaited<ReturnType<MinionJob['info']>>;
 export type MinionStates = NonNullable<
     Awaited<ReturnType<MinionJob['info']>>
 >['state'];
+export type MinionArgs = Parameters<Minion['enqueue']>[1];
+export interface DailyHistory {
+    epoch: number;
+    failed_jobs: number;
+    finished_jobs: number;
+}
+export interface MinionHistory {
+    daily: DailyHistory[];
+}
 
-export interface IMinionJobs {
+// redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
+
+export type MinionJobId = string; // better definition for hex{24}
+export type MinionJobOid = Types.ObjectId;
+export type MinionWorkerId = MinionJobId;
+export type MinionWorkerOId = MinionJobOid;
+
+export interface JobInfo extends Omit<
+    JobInfoMinion,
+    'id' | 'children' | 'parents' | 'worker'
+> {
+    children: MinionJobId[];
+    id: MinionJobId;
+    parents: MinionJobId[];
+    worker: MinionWorkerId;
+}
+
+export interface JobList {
+    jobs: JobInfo[];
+    total: number;
+}
+
+// redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
+type EnqueueOptionsMinion = NonNullable<Parameters<Minion['enqueue']>[2]>;
+export type EnqueueOptions =
+    | (Omit<EnqueueOptionsMinion, 'parents'> & {
+          parents?: MinionJobId[];
+      })
+    | undefined;
+
+// END: redefinitions
+
+// TODO: maybe can be used the extends Omit<> used for JobInfo
+export interface DequeuedJob {
+    id: MinionJobId;
+    args: MinionArgs;
+    retries: number;
+    task: string;
+}
+
+// TODO: maybe can be used the extends Omit<> used for JobInfo
+export interface DequeueOptions {
+    id?: MinionJobId;
+    minPriority?: number;
+    queues?: string[];
+}
+
+// DB Definitions
+
+export interface MinionJobDB {
     _id: Types.ObjectId;
     id?: Types.ObjectId;
     args: any[];
@@ -44,6 +100,12 @@ export interface IMinionJobs {
     __lock?: string;
 }
 
+export interface JobListDb {
+    jobs: MinionJobDB[];
+    total: number;
+}
+
+// TODO: Maybe can be used some lib to convert from Typescript types to Mongoose Schema
 export const minionJobsSchema: MongooseSchema = {
     name: 'minion_jobs',
     alias: 'minionJobs',
@@ -152,30 +214,3 @@ export const minionNotificationsSchema: MongooseSchema = {
         queue: { type: String, required: false, default: 'default' }
     }
 };
-
-// redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
-
-export type MinionJobId = string; // better definition for hex{24}
-export type MinionJobOid = Types.ObjectId;
-export type MinionWorkerId = MinionJobId;
-export type MinionWorkerOId = MinionJobOid;
-
-export interface JobInfo extends Omit<
-    JobInfoMinion,
-    'id' | 'children' | 'parents' | 'worker'
-> {
-    children: MinionJobId[];
-    id: MinionJobId;
-    parents: MinionJobId[];
-    worker: MinionWorkerId;
-}
-
-export interface JobList {
-    jobs: JobInfo[];
-    total: number;
-}
-
-export interface JobListDb {
-    jobs: IMinionJobs[];
-    total: number;
-}
