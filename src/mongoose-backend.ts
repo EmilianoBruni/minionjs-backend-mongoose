@@ -1,8 +1,16 @@
 import type {
-    IMinionJobs,
+    MinionJobDB,
+    MinionWorkerId,
+    MinionJobId,
+    MinionArgs,
+    DequeueOptions,
+    DequeuedJob,
+    EnqueueOptions,
     IMinionWorkers,
     JobList,
-    JobListDb
+    JobListDb,
+    DailyHistory,
+    MinionHistory
 } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 // import {
@@ -18,7 +26,6 @@ import type Minion from '@minionjs/core';
 //     RetryOptions,
 //     WorkerList
 // } from '@minionjs/core';
-import type { MongooseOptions, FilterQuery } from 'mongoose';
 import os from 'node:os';
 import {
     minionJobsSchema,
@@ -27,7 +34,8 @@ import {
     minionNotificationsSchema
 } from './schemas/minion.js';
 import dayjs from 'dayjs';
-import { Types, Mongoose } from 'mongoose';
+import mongoose from 'mongoose';
+import type { QueryFilter, MongooseOptions, Types } from 'mongoose';
 
 // export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 
@@ -54,19 +62,6 @@ import { Types, Mongoose } from 'mongoose';
 //     parents?: string[];
 //     priority?: number;
 //     queue?: string;
-// }
-
-// export interface DequeuedJob {
-//     id: MinionJobId;
-//     args: MinionArgs;
-//     retries: number;
-//     task: string;
-// }
-
-// export interface DequeueOptions {
-//     id?: MinionJobId;
-//     minPriority?: number;
-//     queues?: string[];
 // }
 
 interface ConnectOptions extends MongooseOptions {
@@ -96,7 +91,7 @@ export default class MongooseBackend {
     /**
      * `mongoose` object used to store mongoose connection
      */
-    private mongoose: Mongoose;
+    private mongoose: typeof mongoose;
 
     private _hostname = os.hostname();
     private _underReplicaSet: boolean | undefined;
@@ -134,10 +129,10 @@ export default class MongooseBackend {
         this._underReplicaSet = status;
     }
 
-    constructor(minion: Minion, config: ConnectOptions | Mongoose) {
+    constructor(minion: Minion, config: ConnectOptions | typeof mongoose) {
         this.minion = minion;
         if ('uri' in config) {
-            this.mongoose = new Mongoose();
+            this.mongoose = mongoose;
             const { uri, ...mongooseConfig } = config;
             this.mongoose
                 .connect(uri, mongooseConfig)
@@ -249,7 +244,7 @@ export default class MongooseBackend {
         const mJ = this.mongoose.connection.db!.collection('minion_jobs');
         const now = dayjs();
 
-        const job: IMinionJobs = {
+        const job: Omit<MinionJobDB, '_id'> = {
             args: args,
             attempts: options.attempts ?? 1,
             created: now.toDate(),
@@ -260,7 +255,8 @@ export default class MongooseBackend {
             notes: options.notes ?? {},
             priority: options.priority ?? 0,
             queue: options.queue ?? 'default',
-            task: task
+            task: task,
+            parents: []
         };
         if (options.expire !== undefined)
             job.expires = now.add(options.expire, 'milliseconds').toDate();
@@ -1228,7 +1224,7 @@ export default class MongooseBackend {
 
         const mJ = this.mongoose.models.minionJobs;
 
-        const match: FilterQuery<IMinionJobs> = {
+        const match: QueryFilter<MinionJobDB> = {
             __lock: undefined, // select a not locked document
             delayed: { $lte: now },
             state: 'inactive',
@@ -1247,7 +1243,7 @@ export default class MongooseBackend {
         while (retJob === null) {
             if (this.mongoose.connection.readyState !== 1) break;
             // find candidate document and optimistic locking
-            const job = await mJ.findOneAndUpdate<IMinionJobs>(
+            const job = await mJ.findOneAndUpdate<MinionJobDB>(
                 match,
                 { $set: { __lock: id } },
                 { sort: { priority: -1, _id: 1 } }
@@ -1288,14 +1284,14 @@ export default class MongooseBackend {
     /* activate this job, unlock locked jobs and return DequeuedJob */
     async _activateJob(
         id: MinionWorkerId,
-        job: IMinionJobs,
+        job: MinionJobDB,
         lockedJobs: Types.ObjectId[]
     ): Promise<DequeuedJob> {
         const now = dayjs().toDate();
         if (!this.mongoose.connection.db)
             throw new Error('Database connection is not established');
         const mJ =
-            this.mongoose.connection.db.collection<IMinionJobs>('minion_jobs');
+            this.mongoose.connection.db.collection<MinionJobDB>('minion_jobs');
 
         const res = await mJ.updateOne(
             { _id: job._id },
@@ -1329,7 +1325,7 @@ export default class MongooseBackend {
         retries: number,
         result?: any
     ): Promise<boolean> {
-        const job: IMinionJobs | null =
+        const job: MinionJobDB | null =
             await this.mongoose.models.minionJobs.findOneAndUpdate(
                 {
                     _id: this._oid(id),
