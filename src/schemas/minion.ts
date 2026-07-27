@@ -57,6 +57,18 @@ export type EnqueueOptions =
       })
     | undefined;
 
+export type ListJobsOptions = Omit<
+    NonNullable<Parameters<Minion['backend']['listJobs']>[2]>,
+    'ids' | 'before' | 'after'
+> & {
+    ids?: MinionJobId[];
+    before?: MinionJobId;
+    after?: MinionJobId;
+};
+> & {
+    ids?: MinionJobId[];
+};
+
 // END: redefinitions
 
 // TODO: maybe can be used the extends Omit<> used for JobInfo
