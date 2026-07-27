@@ -10,7 +10,8 @@ import type {
     JobList,
     JobListDb,
     DailyHistory,
-    MinionHistory
+    MinionHistory,
+    ListJobsOptions
 } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 // import {
