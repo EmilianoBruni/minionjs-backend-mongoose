@@ -51,7 +51,7 @@
         "@types/node": "^26.1.1",
         "@typescript-eslint/eslint-plugin": "^8.65.0",
         "@typescript-eslint/parser": "^8.65.0",
-        "eslint": "^10.7.0",
+        "eslint": "^10.8.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-node": "^11.1.0",
@@ -62,9 +62,17 @@
     },
     "dependencies": {
         "@minionjs/core": "^1.0.1",
+        "@tapjs/core": "^4.5.8",
+        "@tapjs/tsx": "^3.4.8",
         "@tsconfig/node20": "^20.1.9",
         "dayjs": "^1.11.21",
         "mongoose": "^9.8.0",
         "rimraf": "^6.1.3"
+    },
+    "tap": {
+        "plugin": [
+            "@tapjs/tsx",
+            "!@tapjs/typescript"
+        ]
     }
 }
