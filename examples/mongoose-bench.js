@@ -1,5 +1,5 @@
 import { performance } from 'perf_hooks';
-import { MongooseBackend } from '../lib/mongoose-backend.js';
+import MongooseBackend from '../src/mongoose-backend.js';
 import Minion from '@minionjs/core';
 
 const ENQUEUE = 10000;
