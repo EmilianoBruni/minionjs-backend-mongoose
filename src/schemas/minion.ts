@@ -26,10 +26,17 @@ export interface DailyHistory {
 export interface MinionHistory {
     daily: DailyHistory[];
 }
+
 export type ListLocksOptions = Parameters<Minion['backend']['listLocks']>[2];
 export type LockList = ReturnType<Minion['backend']['listLocks']>;
+export type RegisterWorkerOptions = Parameters<
+    Minion['backend']['registerWorker']
+>[1];
 
 export type LockOptions = Parameters<Minion['lock']>[2];
+export type ResetOptions = Parameters<Minion['reset']>[0];
+
+export type MinionStats = Awaited<ReturnType<Minion['stats']>>;
 
 // redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
 
@@ -62,6 +69,13 @@ export interface WorkerList {
     workers: WorkerInfo[];
     total: number;
 }
+
+export type RetryOptions = Omit<
+    Parameters<Minion['backend']['retryJob']>[2],
+    'parents'
+> & {
+    parents?: MinionJobId[];
+};
 
 // redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
 type EnqueueOptionsMinion = NonNullable<Parameters<Minion['enqueue']>[2]>;
