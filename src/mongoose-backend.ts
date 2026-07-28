@@ -16,7 +16,11 @@ import type {
     LockList,
     WorkerList,
     ListWorkersOptions,
-    LockOptions
+    LockOptions,
+    RegisterWorkerOptions,
+    ResetOptions,
+    RetryOptions,
+    MinionStats
 } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 // import {
