@@ -107,6 +107,5 @@ dist
 /lib
 
 .pnpm-store
-pnpm-lock.yaml
 .tap
 .vscode
