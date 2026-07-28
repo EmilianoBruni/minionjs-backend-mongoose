@@ -11,7 +11,12 @@ import type {
     JobListDb,
     DailyHistory,
     MinionHistory,
-    ListJobsOptions
+    ListJobsOptions,
+    ListLocksOptions,
+    LockList,
+    WorkerList,
+    ListWorkersOptions,
+    LockOptions
 } from './schemas/minion.js';
 import type Minion from '@minionjs/core';
 // import {
@@ -36,7 +41,8 @@ import {
 } from './schemas/minion.js';
 import dayjs from 'dayjs';
 import mongoose from 'mongoose';
-import type { QueryFilter, MongooseOptions, Types } from 'mongoose';
+import type { QueryFilter, MongooseOptions } from 'mongoose';
+import { Types } from 'mongoose';
 
 // export type MinionStates = 'inactive' | 'active' | 'failed' | 'finished';
 
@@ -499,24 +505,19 @@ export default class MongooseBackend {
                 if (job.parents && job.parents.length > 0) {
                     const parents: string[] = [];
                     job.parents.forEach(parent => {
-                        parents.push(parent._id.toString());
+                        const id = parent._id.toString();
+                        parents.push(id);
+                        // find parent and add this as children
+                        const parentJob = jobs.jobs.find(j => j.id === id);
+                        if (parentJob) {
+                            parentJob.children.push(id);
+                        }
                     });
                     // find jobs.jobs and set parents as an array of id
                     const jobToUpdate = jobs.jobs.find(
                         j => j.id === job._id.toString()
                     );
                     if (jobToUpdate) jobToUpdate.parents = parents;
-                }
-                // children is an array of id
-                if (job.children.length > 0) {
-                    const childrens: string[] = [];
-                    job.children.forEach(children => {
-                        childrens.push(children._id.toString());
-                    });
-                    const jobToUpdate = jobs.jobs.find(
-                        j => j.id === job._id.toString()
-                    );
-                    if (jobToUpdate) jobToUpdate.children = childrens;
                 }
             });
         }
@@ -632,7 +633,7 @@ export default class MongooseBackend {
 
         // convert worker.jobs from [ {id: ObjectIdString}] to [ObjectIdString]
         workers.workers.forEach(worker => {
-            const jobsArray: number[] = [];
+            const jobsArray: string[] = [];
             worker.jobs.forEach(job => {
                 /* @ts-ignore:enable */
                 jobsArray.push(job.id);
