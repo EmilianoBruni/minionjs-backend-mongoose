@@ -1,4 +1,4 @@
-import MongooseBackend from '../lib/mongoose-backend.js';
+import MongooseBackend from '../src/mongoose-backend.js';
 import Minion from '@minionjs/core';
 import mongoose from 'mongoose';
 import { test } from 'tap';
