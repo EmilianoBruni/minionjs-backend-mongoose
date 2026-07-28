@@ -1,4 +1,4 @@
-import type { MinionJob } from '@minionjs/core';
+import type { MinionJob, MinionWorker } from '@minionjs/core';
 import Minion from '@minionjs/core';
 
 import type { Types } from 'mongoose';
@@ -26,6 +26,10 @@ export interface DailyHistory {
 export interface MinionHistory {
     daily: DailyHistory[];
 }
+export type ListLocksOptions = Parameters<Minion['backend']['listLocks']>[2];
+export type LockList = ReturnType<Minion['backend']['listLocks']>;
+
+export type LockOptions = Parameters<Minion['lock']>[2];
 
 // redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
 
@@ -49,6 +53,16 @@ export interface JobList {
     total: number;
 }
 
+export interface WorkerInfo extends Omit<MinionWorker, 'id' | 'jobs'> {
+    id: MinionWorkerId;
+    jobs: MinionJobId[];
+}
+
+export interface WorkerList {
+    workers: WorkerInfo[];
+    total: number;
+}
+
 // redefined from minion original types to use ObjectId and its hex string rappresentation instead of numbers for ids
 type EnqueueOptionsMinion = NonNullable<Parameters<Minion['enqueue']>[2]>;
 export type EnqueueOptions =
@@ -65,9 +79,11 @@ export type ListJobsOptions = Omit<
     before?: MinionJobId;
     after?: MinionJobId;
 };
-> & {
-    ids?: MinionJobId[];
-};
+
+export interface ListWorkersOptions {
+    before?: MinionWorkerId;
+    ids?: MinionWorkerId[];
+}
 
 // END: redefinitions
 
