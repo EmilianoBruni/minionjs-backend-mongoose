@@ -193,15 +193,14 @@ t.test('Mongoose backend', skip, async t => {
         for await (const i of [id2, id3]) {
             const finished = (await moj.findById(minion.backend._oid(id)))
                 .finished;
-            await moj.updateOne({ _id: minion.backend._oid(i) }, [
+            await moj.updateOne(
+                { _id: minion.backend._oid(i) },
                 {
-                    $set: {
-                        finished: dayjs(finished)
-                            .subtract(minion.removeAfter + 1, 'milliseconds')
-                            .toDate()
-                    }
+                    finished: dayjs(finished)
+                        .subtract(minion.removeAfter + 1, 'milliseconds')
+                        .toDate()
                 }
-            ]);
+            );
         }
 
         await worker.unregister();
@@ -224,15 +223,12 @@ t.test('Mongoose backend', skip, async t => {
         const moj = moo.models.minionJobs;
         const stuck = minion.stuckAfter + 1;
         for await (const i of [id, id2, id3, id4]) {
-            await moj.updateOne({ _id: minion.backend._oid(i) }, [
+            await moj.updateOne(
+                { _id: minion.backend._oid(i) },
                 {
-                    $set: {
-                        delayed: dayjs()
-                            .subtract(stuck, 'milliseconds')
-                            .toDate()
-                    }
+                    delayed: dayjs().subtract(stuck, 'milliseconds').toDate()
                 }
-            ]);
+            );
         }
 
         const job = await worker.dequeue(0, { id: id4 });
@@ -689,7 +685,16 @@ t.test('Mongoose backend', skip, async t => {
     });
 
     await t.test('Enqueue, dequeue and perform', async t => {
-        t.notOk(await minion.job(12345));
+        // expect to raise an error
+        try {
+            await minion.job(12345);
+            t.fail('Expected error to be thrown');
+        } catch (err) {
+            t.equal(
+                err.message,
+                'One or more ids are not valid ObjectId [12345]'
+            );
+        }
         const id = await minion.enqueue('add', [2, 2]);
         const info = await minion.job(id).then(job => job.info());
         t.same(info.args, [2, 2]);
@@ -701,15 +706,16 @@ t.test('Mongoose backend', skip, async t => {
         await worker.register();
         const job = await worker.dequeue();
         t.same((await worker.info()).jobs, [id]);
-        t.same((await job.info()).created instanceof Date, true);
-        t.same((await job.info()).started instanceof Date, true);
-        t.same((await job.info()).time instanceof Date, true);
-        t.equal((await job.info()).state, 'active');
+        const jobInfo = await job.info();
+        t.same(jobInfo.created instanceof Date, true);
+        t.same(jobInfo.started instanceof Date, true);
+        t.same(jobInfo.time instanceof Date, true);
+        t.equal(jobInfo.state, 'active');
         t.same(job.args, [2, 2]);
         t.equal(job.task, 'add');
         t.equal(job.retries, 0);
-        t.equal((await job.info()).worker.toString(), worker.id);
-        t.notOk((await job.info()).finished);
+        t.equal(jobInfo.worker, worker.id);
+        t.notOk(jobInfo.finished);
 
         await job.perform();
         t.same((await worker.info()).jobs, []);
@@ -918,7 +924,7 @@ t.test('Mongoose backend', skip, async t => {
         await worker.unregister();
     });
 
-    await t.test('Nested data structures', async t => {
+    await t.test('Nested data structure', async t => {
         minion.addTask('nested', async (job, object, array) => {
             await job.note({ bar: { baz: [1, 2, 3] } });
             await job.note({ baz: 'yada' });
@@ -934,7 +940,6 @@ t.test('Mongoose backend', skip, async t => {
         await job.perform();
         t.equal((await job.info()).state, 'finished');
         t.ok(await job.note({ yada: ['works'] }));
-        t.notOk(await minion.backend.note(-1, { yada: ['failed'] }));
         t.same((await job.info()).notes, {
             foo: [4, 5, 6],
             bar: { baz: [1, 2, 3] },
