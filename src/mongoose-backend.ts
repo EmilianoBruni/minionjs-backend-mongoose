@@ -413,12 +413,21 @@ export default class MongooseBackend {
     ): Promise<JobList> {
         const mJ = this.mongoose.models.minionJobs;
         const results = mJ.aggregate<JobListDb>();
-        if (options.ids !== undefined)
+        if (options.ids !== undefined) {
+            // raise an error if ids are not ObjectId
+            if (!options.ids.every(id => this._isValidObjectIdOrString(id))) {
+                throw new Error(
+                    'One or more ids are not valid ObjectId [' +
+                        options.ids.join(', ') +
+                        ']'
+                );
+            }
             results.match({
                 _id: {
                     $in: options.ids.map(this._oid.bind(this))
                 }
             });
+        }
         if (options.queues !== undefined)
             results.match({
                 queue: {
@@ -1347,5 +1356,12 @@ export default class MongooseBackend {
         return state === 'failed'
             ? this._autoRetryJob(id, retries, attempts)
             : true;
+    }
+
+    _isValidObjectIdOrString(oid: string | Types.ObjectId): boolean {
+        if (typeof oid === 'string') {
+            return /^[a-fA-F0-9]{24}$/.test(oid);
+        }
+        return oid instanceof this.mongoose.Types.ObjectId;
     }
 }
