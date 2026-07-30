@@ -1095,6 +1095,8 @@ export default class MongooseBackend {
             minionWorkersSchema,
             minionNotificationsSchema
         ].forEach(model => {
+            // skip if model already loaded
+            if (this.mongoose.models[model.alias]) return;
             const schema = new this.mongoose.Schema(model.schema, {
                 collection: model.name,
                 ...model.options
