@@ -507,7 +507,7 @@ export default class MongooseBackend {
                 worker: worker?.toHexString() ?? '',
                 parents: [],
                 children: [],
-                time: Math.floor(Date.now() / 1000)
+                time: new Date()
             })),
             total: jobsDB.total
         };
